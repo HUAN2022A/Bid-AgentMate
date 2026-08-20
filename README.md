@@ -2,7 +2,7 @@
 
 技术标书智能编写平台 —— 把 bid-skills（AI 编程助手 skill 家族）升级为独立软件产品。
 
-**状态**：设计阶段。设计文档见 [DESIGN.md](DESIGN.md)。
+**状态**：设计定稿（v0.2，经 grilling 13 轮问答）。设计文档见 [DESIGN.md](DESIGN.md)。
 
 **上游参考**：`git@github.com:HUAN2022A/bid-skills.git`（skill 版，核心脚本与设计理念来源）
 
