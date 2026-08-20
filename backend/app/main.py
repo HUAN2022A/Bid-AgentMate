@@ -5,11 +5,19 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api import auth, projects
+from app.api import auth, outline as outline_api, projects
 from app.core.config import settings
 from app.core.database import Base, engine, SessionLocal
 from app.core.security import hash_password
-from app.models import file_object, project, tender_file, user  # noqa: F401 注册表模型
+from app.models import (  # noqa: F401 注册表模型
+    file_object,
+    outline,
+    project,
+    scoring_item,
+    tech_requirement,
+    tender_file,
+    user,
+)
 from app.models.user import User
 
 app = FastAPI(title="Bid-AgentMate", version="0.1.0")
@@ -25,6 +33,7 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(projects.router)
+app.include_router(outline_api.router)
 
 
 @app.on_event("startup")

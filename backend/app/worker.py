@@ -11,8 +11,8 @@ celery_app = Celery(
 celery_app.conf.update(task_track_started=True, worker_max_tasks_per_child=50)
 
 
-@celery_app.task(name="app.worker.parse_tender")
-def parse_tender(project_id: int) -> None:
-    from app.services.parse_service import run_parse
+@celery_app.task(name="app.worker.analyze_tender")
+def analyze_tender(project_id: int) -> None:
+    from app.services.analyze_service import run_analyze
 
-    run_parse(project_id)
+    run_analyze(project_id)

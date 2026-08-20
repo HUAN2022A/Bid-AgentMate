@@ -18,7 +18,7 @@ from app.models.file_object import FileObject
 from app.models.project import Project
 from app.models.tender_file import TenderFile
 from app.models.user import User
-from app.services.parse_service import dispatch_parse
+from app.services.analyze_service import dispatch_analyze
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
@@ -136,7 +136,7 @@ async def upload_tender(
     p.parse_error = ""
     db.commit()
 
-    mode = dispatch_parse(project_id)
+    mode = dispatch_analyze(project_id)
     db.refresh(p)
     out = _to_out(p)
     if mode == "sync":  # 同步模式下状态已终态，直接返回最新

@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Card, Descriptions, Space, Table, Tag, Typography, Upload, message } from 'antd'
 import { DownloadOutlined, InboxOutlined, ReloadOutlined } from '@ant-design/icons'
-import { useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import {
   downloadExtracted,
   getProject,
@@ -17,6 +17,7 @@ const POLLING_STATES = ['parsing']
 export default function ProjectDetailPage() {
   const { id } = useParams<{ id: string }>()
   const pid = Number(id)
+  const nav = useNavigate()
   const qc = useQueryClient()
 
   const { data: project, isLoading } = useQuery({
@@ -132,7 +133,18 @@ export default function ProjectDetailPage() {
       {project.state === 'outline_pending' && (
         <Card title="下一步">
           <Typography.Paragraph type="secondary">
-            招标文件解析完成。大纲设计（评分点拆解 → 章节树）将在阶段 2 上线，当前可先下载提取全文人工核对解析质量。
+            招标文件解析完成，评分点已拆解。请核对并确认大纲——这是唯一起草前的人工确认点。
+          </Typography.Paragraph>
+          <Button type="primary" onClick={() => nav(`/projects/${pid}/outline`)}>
+            去确认大纲
+          </Button>
+        </Card>
+      )}
+
+      {project.state === 'outline_confirmed' && (
+        <Card title="下一步">
+          <Typography.Paragraph type="secondary">
+            大纲已确认（v{project.outline_version}）。逐章起草将在阶段 2 后续迭代上线。
           </Typography.Paragraph>
         </Card>
       )}

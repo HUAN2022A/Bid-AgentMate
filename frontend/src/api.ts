@@ -101,6 +101,55 @@ export const getProject = (id: number) => request<ProjectOut>(`/api/projects/${i
 export const listTenderFiles = (id: number) =>
   request<TenderFileOut[]>(`/api/projects/${id}/tender`)
 
+// ---- 阶段 2：解析结果 + 大纲 ----
+
+export interface ScoringItemOut {
+  item_key: string
+  category: string
+  item: string
+  score: number
+  criteria_original: string
+  location: string
+  response_hint: string
+}
+
+export interface TechRequirementOut {
+  req_key: string
+  star: boolean
+  requirement_original: string
+  location: string
+}
+
+export interface AnalysisOut {
+  scoring_items: ScoringItemOut[]
+  tech_requirements: TechRequirementOut[]
+}
+
+export interface OutlineNodeData {
+  id: string
+  title: string
+  target_words: number
+  scoring_keys: string[]
+  children: OutlineNodeData[]
+}
+
+export interface OutlineDraftOut {
+  tree: { nodes: OutlineNodeData[] }
+  ai_raw_tree: { nodes: OutlineNodeData[] }
+  updated_at: string
+}
+
+export const getAnalysis = (id: number) => request<AnalysisOut>(`/api/projects/${id}/analysis`)
+export const getOutline = (id: number) => request<OutlineDraftOut>(`/api/projects/${id}/outline`)
+export const saveOutline = (id: number, tree: { nodes: OutlineNodeData[] }) =>
+  request<OutlineDraftOut>(`/api/projects/${id}/outline`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tree }),
+  })
+export const confirmOutline = (id: number) =>
+  request<{ version: number; state: string }>(`/api/projects/${id}/outline/confirm`, { method: 'POST' })
+
 export async function uploadTender(id: number, file: File): Promise<ProjectOut> {
   const form = new FormData()
   form.append('file', file)
