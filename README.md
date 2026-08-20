@@ -28,16 +28,21 @@ frontend/           前端（React 18 + TypeScript + Vite + Ant Design 5）
 ## 开发
 
 ```bash
-# 后端
+# 后端（依赖用 uv 安装）
 cd backend
-../.venv/Scripts/pip install -r requirements.txt   # Windows
-../.venv/bin/pip install -r requirements.txt       # Linux/macOS
-uvicorn app.main:app --reload
+uv pip install --python ../.venv/Scripts/python.exe -r requirements.txt   # Windows
+cp .env.example .env   # 本地演示可设 SYNC_TASKS=true + sqlite，免 Redis
+../.venv/Scripts/python -m uvicorn app.main:app --reload
 
-# 前端（待建）
+# 前端（另开终端）
 cd frontend
-npm create vite@latest . -- --template react-ts
+npm install
+npm run dev            # http://localhost:5173，/api 代理到 8000
+
+# 生产形态：npm run build 后由 FastAPI 同源托管 dist（已验证）
 ```
+
+默认账号 `admin / admin123`（.env 可改，生产部署务必修改）。
 
 ## 实施路径
 
