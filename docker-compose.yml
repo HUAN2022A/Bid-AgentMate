@@ -1,0 +1,41 @@
+version: "3.9"
+
+# Q28 定稿：4 服务，无 nginx，前端构建产物由 backend 容器内 FastAPI 托管
+services:
+  backend:
+    build: ./backend
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    env_file: ./backend/.env
+    volumes:
+      - bid_data:/app/data
+    depends_on:
+      - postgres
+      - redis
+
+  worker:
+    build: ./backend
+    command: celery -A app.worker.celery_app worker --loglevel=info --pool=solo
+    env_file: ./backend/.env
+    volumes:
+      - bid_data:/app/data
+    depends_on:
+      - postgres
+      - redis
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: bidagentmate
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+
+volumes:
+  bid_data:
+  pg_data:
