@@ -13,15 +13,17 @@
 ## 项目结构
 
 ```
-backend/            FastAPI 后端
+backend/            FastAPI 后端（Python）
   app/
     api/            路由
     core/           配置、LLM 接入
     models/         SQLAlchemy 模型
     services/       业务逻辑
   scripts/          从 bid-skills 移植的核心脚本（extract/check/export）
-frontend/           前端（Vue 3）
+frontend/           前端（React 18 + TypeScript + Vite + Ant Design 5）
 ```
+
+技术栈决策详见 DESIGN.md 决策记录 Q14-Q30。
 
 ## 开发
 
@@ -34,6 +36,7 @@ uvicorn app.main:app --reload
 
 # 前端（待建）
 cd frontend
+npm create vite@latest . -- --template react-ts
 ```
 
 ## 实施路径

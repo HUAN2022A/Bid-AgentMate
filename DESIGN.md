@@ -44,26 +44,32 @@
 - 客户允许出网：指到云端 API
 - 明确告知客户"本地模型能力影响起草质量"，兜底是"AI 生成 + 人工编辑"工作台
 
-**技术栈**：
+**技术栈**（Q14-Q26 定稿，2026-08-20）：
 
 - 后端：FastAPI（Python，与现有 skill 脚本同语言，extract/check/export 逻辑直接复用）
-- 前端：Vue 3 或 React
-- 数据库：PostgreSQL（素材卡资格字段用 jsonb 支持可扩展查询）
-- 文件存储：MinIO / S3
-- 异步任务：Celery / RQ（PDF 解析、批量起草是分钟级任务）
-- LLM：OpenAI 兼容协议抽象层
+- 前端：React 18 + TypeScript + Vite + Ant Design 5 + Zustand + TanStack Query（轮询起步，接口预留 SSE 兼容格式）
+- 章节编辑器：TipTap（ProseMirror 内核）+ markdown 双向转换层，round-trip 测试保真
+- 数据库：PostgreSQL（jsonb 支持可扩展查询）+ SQLAlchemy 2.0 + Alembic 迁移
+- 文件存储：本地磁盘 + Storage 抽象接口（put/get/url），MinIO 实现留待多租户时补
+- 异步任务：Celery + Redis（只当执行器+队列，不用 canvas；编排状态机自管）
+- LLM：openai 官方 SDK + 自写薄封装（重试/超时/Pydantic 结构化输出校验），OpenAI 兼容协议配置项
+- 认证：最简账号密码 + JWT（无角色分权，但 user_id 从第一天进锁定/版本/审计字段）
+- 部署：Docker Compose 4 服务（backend / worker / postgres / redis），前端静态文件由 FastAPI 托管，不要 nginx
+- 配置：.env + pydantic-settings，LLM 配置嵌套（llm.base_url/api_key/model/temperature），预留 llm.parse.*/llm.draft.* 拆分
 
 ## 四、架构：数据库 + 状态机
 
-### 4.1 项目状态机
+### 4.1 项目状态机（Q21 定稿）
 
 ```
-已上传 → 已解析 → 大纲待确认 → 起草中 → 待自查 → 待导出 → 已完成
-              ↑________人工确认点（唯一，系统强制）________↑
+created → parsing → parse_failed(可重传) → outline_pending → outline_confirmed → drafting → draft_done → checking → exported
+                        ↑________人工确认点（唯一，系统强制）________↑
 ```
 
 - **大纲不点"确认"，起草按钮不可用**
 - 状态流转全部留痕（谁、什么时候、做了什么），满足审计
+- 大纲变更不是主状态分支：`outline_version` 递增 + 受影响章节打 `needs_review` 标志，主状态机保持线性
+- 唯一回退边：parse_failed 允许重新上传回到 parsing
 
 ### 4.2 大纲变更处理（Q7 定稿）
 
@@ -247,6 +253,23 @@ users / roles     用户与角色 —— v1 只分"管理员"和"编辑"
 | Q11 | AI 审查 | 机器检查和 AI 深度审查分开，v1 只逐章审查 |
 | Q12 | v1 范围 | 砍官方模板识别、多用户分权，其他保留 |
 | Q13 | 保留项边界 | AI 审查只逐章、复用只手动指定、版本历史只章节编辑器层面 |
+| Q14 | 前端框架 | React 18 + TypeScript + Vite + Ant Design 5 + Zustand + TanStack Query |
+| Q15 | ORM 与迁移 | SQLAlchemy 2.0 + Alembic，不引入 SQLModel |
+| Q16 | 异步任务 | 保留 Celery + Redis（任务状态持久化是断点续作的前提） |
+| Q17 | 前后端实时通道 | 轮询起步（3-5s），接口预留 SSE 兼容格式，不上 WebSocket |
+| Q18 | 文件存储 | v1 本地磁盘 + Storage 抽象接口（put/get/url），MinIO 实现留待多租户 |
+| Q19 | LLM 接入 | openai 官方 SDK + 自写薄封装（重试/超时/Pydantic 校验），不引入 LangChain |
+| Q20 | 编辑器内核 | TipTap（ProseMirror）+ markdown 双向转换层，round-trip 测试保真 |
+| Q21 | 项目状态机 | 线性主状态 + outline_version/needs_review 修饰标志分离，唯一回退边 parse_failed→parsing |
+| Q22 | 起草任务粒度 | 章节级任务记录 + 自写轻编排（chapter_task 表 + dispatcher），Celery 只当执行器不用 canvas |
+| Q23 | 认证 | 最简账号密码 + JWT，无角色分权，user_id 从第一天进锁定/版本/审计字段 |
+| Q24 | 章节版本历史 | 全量快照表（source 区分人工/AI整章/AI段落），当前正文=最新版本行，不双写 |
+| Q25 | 存储布局 | {data_root}/projects/{id}/tender|export|figures + materials/{id}/，file_object 表存相对路径+sha256 |
+| Q26 | LLM 输出契约 | Pydantic 模型即契约，prompt 嵌 schema + model_validate_json 校验 + 失败喂错重试≤2 次，不用 response_format |
+| Q27 | 大纲确认交互 | 草稿可编辑（outline_draft jsonb）+ 确认即快照（outline_confirmed 带 version），AI 原始建议与人工定稿永远可对比 |
+| Q28 | Docker Compose | 4 服务：backend(uvicorn) / worker(同镜像 celery) / postgres / redis，前端静态文件 FastAPI 托管，不要 nginx |
+| Q29 | 配置管理 | .env + pydantic-settings 统一读取，LLM 配置嵌套预留 llm.parse.*/llm.draft.* 拆分 |
+| Q30 | 测试策略 | 金标准文件不进仓库（tests/fixtures gitignore）；纯函数单测 + LLM 录播测校验逻辑 + 手动金标准验收脚本 |
 
 ## 附：与原 skill 仓库的关系
 
