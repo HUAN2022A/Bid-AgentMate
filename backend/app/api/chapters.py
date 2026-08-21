@@ -67,11 +67,14 @@ def _latest_version(db: Session, chapter_id: int) -> ChapterVersion | None:
 def draft_all(
     project_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
-    """dispatcher 入口：全部 pending/draft_failed 章节逐章起草（Q22）。"""
+    """dispatcher 入口：全部 pending/draft_failed 章节逐章起草（Q22）。
+
+    允许 outline_confirmed（首起草）/ draft_done（重跑失败）/ exported（补起草，如素材库更新后）。
+    """
     p = _get_project(db, project_id)
-    if p.state not in ("outline_confirmed", "draft_done"):
+    if p.state not in ("outline_confirmed", "draft_done", "exported"):
         raise HTTPException(status_code=409, detail=f"当前状态 {p.state} 不允许起草（须先确认大纲）")
-    if p.state == "draft_done":  # 允许重跑失败章节
+    if p.state in ("draft_done", "exported"):  # 回到 outline_confirmed 让 dispatcher 接管
         p.state = "outline_confirmed"
         db.commit()
     return dispatch_draft_all(project_id)

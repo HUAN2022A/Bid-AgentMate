@@ -120,7 +120,10 @@ def _dispatch_one(project_id: int, chapter_id: int) -> None:
 
 
 def _build_context(db: Session, project: Project, chapter: Chapter) -> str:
-    """上下文组装：章节信息 + 挂接评分点原文 + 技术需求原文 + 素材占位（素材库后续迭代）。"""
+    """上下文组装：章节信息 + 挂接评分点原文 + 技术需求原文 + 素材卡检索注入（Q5 引用快照）。"""
+    from app.services.ingest_service import search_materials
+    from app.models.material import MaterialSnapshot
+
     parts = [f"# 章节信息\n编号：{chapter.chapter_key}\n标题：{chapter.title}\n目标字数：{chapter.target_words}"]
 
     keys = [k for k in chapter.scoring_keys.split(",") if k]
@@ -147,7 +150,32 @@ def _build_context(db: Session, project: Project, chapter: Chapter) -> str:
             for r in stars:
                 parts.append(f"- {r.requirement_original}")
 
-    parts.append("# 素材库\n（素材库模块尚未上线，涉及公司业绩/人员/资质处一律标 [待补：xxx]）")
+    # 素材库：按章节标题+评分点名称检索，命中卡注入并落引用快照（Q5）
+    kw = [chapter.title]
+    if keys:
+        kw += [it.item for it in items]
+    materials = search_materials(db, kw)
+    if materials:
+        parts.append("# 公司素材卡（公司事实只准引用以下卡片内容，不得编造；卡片标 [待补] 的字段在正文对应处照标 [待补]）")
+        for m in materials:
+            parts.append(f"## 素材卡 [{m.type}] {m.name}\n{m.summary}")
+            if m.qual_extra:
+                parts.append("资格字段：" + json.dumps(m.qual_extra, ensure_ascii=False))
+            # 引用快照（同项目同卡只存一次）
+            exists = (
+                db.query(MaterialSnapshot)
+                .filter(MaterialSnapshot.project_id == project.id, MaterialSnapshot.material_id == m.id)
+                .first()
+            )
+            if not exists:
+                db.add(MaterialSnapshot(
+                    project_id=project.id, material_id=m.id,
+                    content={"type": m.type, "name": m.name, "summary": m.summary,
+                             "qual_extra": m.qual_extra, "tags": m.tags, "source": m.source},
+                ))
+        db.flush()
+    else:
+        parts.append("# 素材库\n（未检索到相关素材卡，涉及公司业绩/人员/资质处一律标 [待补：xxx]）")
     return "\n\n".join(parts)
 
 

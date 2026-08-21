@@ -237,6 +237,53 @@ export async function downloadFile(id: number, kind: 'check/report' | 'export/do
   URL.revokeObjectURL(url)
 }
 
+// ---- 素材库 ----
+
+export interface MaterialOut {
+  id: number
+  type: string
+  name: string
+  summary: string
+  qual_extra: Record<string, unknown>
+  tags: string
+  source: string
+  updated_at: string
+}
+
+export interface IngestResultOut {
+  stats: Record<string, number>
+  gaps: string[]
+  source: string
+}
+
+export const listMaterials = (type?: string, q?: string) => {
+  const params = new URLSearchParams()
+  if (type) params.set('type', type)
+  if (q) params.set('q', q)
+  const qs = params.toString()
+  return request<MaterialOut[]>(`/api/materials${qs ? '?' + qs : ''}`)
+}
+export const createMaterial = (body: Partial<MaterialOut>) =>
+  request<MaterialOut>('/api/materials', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+export const updateMaterial = (id: number, body: Partial<MaterialOut>) =>
+  request<MaterialOut>(`/api/materials/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+export const deleteMaterial = (id: number) =>
+  request<{ deleted: number }>(`/api/materials/${id}`, { method: 'DELETE' })
+
+export async function ingestMaterial(file: File): Promise<IngestResultOut> {
+  const form = new FormData()
+  form.append('file', file)
+  return request<IngestResultOut>('/api/materials/ingest', { method: 'POST', body: form })
+}
+
 export async function uploadTender(id: number, file: File, role = 'main'): Promise<TenderFileOut> {
   const form = new FormData()
   form.append('file', file)

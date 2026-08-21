@@ -10,6 +10,7 @@ import OutlinePage from './pages/OutlinePage'
 import ChaptersPage from './pages/ChaptersPage'
 import ChapterEditorPage from './pages/ChapterEditorPage'
 import DeliveryPage from './pages/DeliveryPage'
+import MaterialsPage from './pages/MaterialsPage'
 
 function Shell() {
   const nav = useNavigate()
@@ -26,6 +27,9 @@ function Shell() {
           Bid-AgentMate
         </Typography.Title>
         <Space>
+          <Button size="small" ghost onClick={() => nav('/materials')}>
+            素材库
+          </Button>
           <Typography.Text style={{ color: 'rgba(255,255,255,0.85)' }}>
             {me?.display_name || me?.username}
           </Typography.Text>
@@ -66,6 +70,7 @@ export default function App() {
         <Route path="/projects/:id/chapters" element={<ChaptersPage />} />
         <Route path="/projects/:id/chapters/:chapterId" element={<ChapterEditorPage />} />
         <Route path="/projects/:id/delivery" element={<DeliveryPage />} />
+        <Route path="/materials" element={<MaterialsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
