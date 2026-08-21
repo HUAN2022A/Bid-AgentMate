@@ -1,12 +1,12 @@
-/** 交付页：自查报告摘要 + 导出 docx（交付闭环最后一站）。 */
+/** 交付页：自查报告摘要 + 导出预览 + 导出 docx（交付闭环最后一站）。 */
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Button, Card, Col, Row, Space, Statistic, Tag, Typography, message } from 'antd'
-import { AuditOutlined, DownloadOutlined, FileWordOutlined } from '@ant-design/icons'
+import { Button, Card, Col, Modal, Row, Space, Statistic, Table, Tag, Typography, message } from 'antd'
+import { AuditOutlined, DownloadOutlined, EyeOutlined, FileWordOutlined } from '@ant-design/icons'
 import { useParams } from 'react-router-dom'
 import {
-  downloadFile, getProject, runCheck, runExport, STATE_META,
-  type CheckSummaryOut, type ExportSummaryOut,
+  downloadFile, getExportPreview, getProject, runCheck, runExport, STATE_META,
+  type CheckSummaryOut, type ExportPreviewOut, type ExportSummaryOut,
 } from '../api'
 
 export default function DeliveryPage() {
@@ -19,6 +19,8 @@ export default function DeliveryPage() {
   const [exportResult, setExportResult] = useState<ExportSummaryOut | null>(null)
   const [checking, setChecking] = useState(false)
   const [exporting, setExporting] = useState(false)
+  const [preview, setPreview] = useState<ExportPreviewOut | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
 
   const canOperate = ['draft_done', 'checking', 'exported'].includes(project?.state ?? '')
 
@@ -36,11 +38,23 @@ export default function DeliveryPage() {
     }
   }
 
+  const doPreview = async () => {
+    setPreviewLoading(true)
+    try {
+      setPreview(await getExportPreview(pid))
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '预览失败')
+    } finally {
+      setPreviewLoading(false)
+    }
+  }
+
   const doExport = async () => {
     setExporting(true)
     try {
       const r = await runExport(pid)
       setExportResult(r)
+      setPreview(null)
       message.success(`已导出 ${r.chapters} 章 / 约 ${r.total_words.toLocaleString()} 字`)
       qc.invalidateQueries({ queryKey: ['project', pid] })
     } catch (e) {
@@ -72,11 +86,58 @@ export default function DeliveryPage() {
           <Button icon={<AuditOutlined />} loading={checking} disabled={!canOperate} onClick={doCheck}>
             执行自查
           </Button>
+          <Button icon={<EyeOutlined />} loading={previewLoading} disabled={!canOperate} onClick={doPreview}>
+            预览导出模板
+          </Button>
           <Button type="primary" icon={<FileWordOutlined />} loading={exporting} disabled={!canOperate} onClick={doExport}>
             导出技术文件 docx
           </Button>
         </Space>
       </Card>
+
+      <Modal
+        title="导出预览"
+        open={preview !== null}
+        onCancel={() => setPreview(null)}
+        width={720}
+        footer={
+          <Space>
+            <Button onClick={() => setPreview(null)}>关闭</Button>
+            <Button type="primary" icon={<FileWordOutlined />} loading={exporting} onClick={doExport}>
+              确认导出
+            </Button>
+          </Space>
+        }
+      >
+        {preview && (
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            <Typography.Text strong>
+              {preview.project_name}（{preview.tender_no || '无编号'}）— 共 {preview.chapters.length} 章 /
+              约 {preview.total_words.toLocaleString()} 字 / [待补] {preview.pending_gaps} 处
+            </Typography.Text>
+            <Card size="small" title="排版样式">
+              <ul style={{ margin: 0, paddingLeft: 20 }}>
+                {preview.style_notes.map((s, i) => <li key={i}>{s}</li>)}
+              </ul>
+            </Card>
+            <Table
+              rowKey="key"
+              size="small"
+              pagination={{ pageSize: 12, size: 'small' }}
+              dataSource={preview.chapters}
+              columns={[
+                { title: '编号', dataIndex: 'key', width: 80 },
+                { title: '章节', dataIndex: 'title', ellipsis: true },
+                { title: '字数', dataIndex: 'words', width: 90, align: 'right' },
+                {
+                  title: '待补', dataIndex: 'pending', width: 80, align: 'right',
+                  render: (v) => (v ? <Tag color="orange">{v}</Tag> : '—'),
+                },
+              ]}
+            />
+          </Space>
+        )}
+      </Modal>
 
       {checkResult && (
         <Card

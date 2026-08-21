@@ -10,7 +10,7 @@ from app.core.storage import storage
 from app.models.project import Project
 from app.models.user import User
 from app.services.check_service import run_check
-from app.services.export_service import run_export
+from app.services.export_service import run_export, run_export_preview
 
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["delivery"])
 
@@ -31,6 +31,22 @@ class ExportSummaryOut(BaseModel):
     total_words: int
     pending_gaps: int
     exported_at: str
+
+
+class ExportPreviewChapter(BaseModel):
+    key: str
+    title: str
+    words: int
+    pending: int
+
+
+class ExportPreviewOut(BaseModel):
+    project_name: str
+    tender_no: str
+    chapters: list[ExportPreviewChapter]
+    total_words: int
+    pending_gaps: int
+    style_notes: list[str]
 
 
 def _get_project(db: Session, project_id: int) -> Project:
@@ -67,6 +83,18 @@ def export(project_id: int, db: Session = Depends(get_db), user: User = Depends(
     if "error" in result:
         raise HTTPException(status_code=409, detail=result["error"])
     return ExportSummaryOut(**result)
+
+
+@router.get("/export/preview", response_model=ExportPreviewOut)
+def export_preview(
+    project_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    """导出前预览：章节清单/字数/待补/排版样式说明，不生成文件。"""
+    _get_project(db, project_id)
+    result = run_export_preview(project_id)
+    if "error" in result:
+        raise HTTPException(status_code=409, detail=result["error"])
+    return ExportPreviewOut(**result)
 
 
 @router.get("/export/docx")

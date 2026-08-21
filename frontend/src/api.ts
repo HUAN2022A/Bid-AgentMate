@@ -222,6 +222,18 @@ export const runCheck = (id: number) =>
 export const runExport = (id: number) =>
   request<ExportSummaryOut>(`/api/projects/${id}/export`, { method: 'POST' })
 
+export interface ExportPreviewOut {
+  project_name: string
+  tender_no: string
+  chapters: { key: string; title: string; words: number; pending: number }[]
+  total_words: number
+  pending_gaps: number
+  style_notes: string[]
+}
+
+export const getExportPreview = (id: number) =>
+  request<ExportPreviewOut>(`/api/projects/${id}/export/preview`)
+
 export async function downloadFile(id: number, kind: 'check/report' | 'export/docx', filename: string): Promise<void> {
   const token = getToken()
   const resp = await fetch(`/api/projects/${id}/${kind}`, {
