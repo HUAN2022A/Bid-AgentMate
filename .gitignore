@@ -4,6 +4,7 @@ __pycache__/
 *.pyo
 .env
 *.db
+*.log
 node_modules/
 dist/
 .DS_Store
