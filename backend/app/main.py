@@ -5,11 +5,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api import auth, outline as outline_api, projects
+from app.api import auth, chapters, outline as outline_api, projects
 from app.core.config import settings
 from app.core.database import Base, engine, SessionLocal
 from app.core.security import hash_password
 from app.models import (  # noqa: F401 注册表模型
+    chapter,
     file_object,
     outline,
     project,
@@ -34,6 +35,7 @@ app.add_middleware(
 app.include_router(auth.router)
 app.include_router(projects.router)
 app.include_router(outline_api.router)
+app.include_router(chapters.router)
 
 
 @app.on_event("startup")

@@ -151,6 +151,52 @@ export const saveOutline = (id: number, tree: { nodes: OutlineNodeData[] }) =>
 export const confirmOutline = (id: number) =>
   request<{ version: number; state: string }>(`/api/projects/${id}/outline/confirm`, { method: 'POST' })
 
+// ---- 阶段 2：章节起草 ----
+
+export interface ChapterOut {
+  id: number
+  chapter_key: string
+  title: string
+  target_words: number
+  scoring_keys: string
+  state: string
+  draft_error: string
+  needs_review: boolean
+  word_count: number
+}
+
+export interface ChapterContentOut {
+  id: number
+  chapter_key: string
+  title: string
+  state: string
+  content_md: string
+  version_no: number
+  word_count: number
+  target_words: number
+}
+
+export interface ChapterVersionOut {
+  version_no: number
+  source: string
+  word_count: number
+  created_at: string
+}
+
+export const draftAllChapters = (id: number) =>
+  request<{ dispatched: number }>(`/api/projects/${id}/chapters/draft-all`, { method: 'POST' })
+export const listChapters = (id: number) => request<ChapterOut[]>(`/api/projects/${id}/chapters`)
+export const getChapter = (id: number, chapterId: number) =>
+  request<ChapterContentOut>(`/api/projects/${id}/chapters/${chapterId}`)
+export const saveChapter = (id: number, chapterId: number, contentMd: string) =>
+  request<ChapterContentOut>(`/api/projects/${id}/chapters/${chapterId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content_md: contentMd }),
+  })
+export const listChapterVersions = (id: number, chapterId: number) =>
+  request<ChapterVersionOut[]>(`/api/projects/${id}/chapters/${chapterId}/versions`)
+
 export async function uploadTender(id: number, file: File, role = 'main'): Promise<TenderFileOut> {
   const form = new FormData()
   form.append('file', file)

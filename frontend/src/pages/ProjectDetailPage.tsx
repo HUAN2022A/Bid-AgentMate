@@ -189,11 +189,16 @@ export default function ProjectDetailPage() {
         </Card>
       )}
 
-      {project.state === 'outline_confirmed' && (
+      {(project.state === 'outline_confirmed' || project.state === 'drafting' || project.state === 'draft_done') && (
         <Card title="下一步">
           <Typography.Paragraph type="secondary">
-            大纲已确认（v{project.outline_version}）。逐章起草将在阶段 2 后续迭代上线。
+            {project.state === 'outline_confirmed' && `大纲已确认（v${project.outline_version}），可以开始逐章 AI 起草。`}
+            {project.state === 'drafting' && '章节起草中，可进入章节页查看进度。'}
+            {project.state === 'draft_done' && '全部章节起草完成，请逐章审阅编辑。'}
           </Typography.Paragraph>
+          <Button type="primary" onClick={() => nav(`/projects/${pid}/chapters`)}>
+            进入章节起草
+          </Button>
         </Card>
       )}
     </Space>

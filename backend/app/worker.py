@@ -16,3 +16,10 @@ def analyze_tender(project_id: int) -> None:
     from app.services.analyze_service import run_analyze
 
     run_analyze(project_id)
+
+
+@celery_app.task(name="app.worker.draft_chapter")
+def draft_chapter(project_id: int, chapter_id: int) -> None:
+    from app.services.draft_service import run_draft_chapter
+
+    run_draft_chapter(project_id, chapter_id)
