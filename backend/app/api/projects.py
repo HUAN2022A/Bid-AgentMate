@@ -3,6 +3,7 @@
 阶段 1 闭环：上传 → parsing → outline_pending（或 parse_failed）→ 下载 extracted.txt。
 """
 import re
+import time
 from pathlib import PurePosixPath
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile
@@ -115,7 +116,8 @@ async def upload_tender(
         raise HTTPException(status_code=413, detail=f"文件超过 {settings.max_upload_mb}MB 限制")
 
     safe_name = re.sub(r"[^\w.\-一-鿿]", "_", original)
-    rel = f"projects/{project_id}/tender/{safe_name}"
+    # 重传/同名文件防 UNIQUE 冲突：相对路径带毫秒时间戳（Q25 布局不变，仅文件名唯一化）
+    rel = f"projects/{project_id}/tender/{int(time.time() * 1000)}-{safe_name}"
     storage.put(rel, data)
 
     fo = FileObject(
