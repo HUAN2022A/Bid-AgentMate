@@ -13,7 +13,7 @@ class LLMSettings(BaseModel):
     model: str = "gpt-4o"
     temperature: float = 0.3
     max_tokens: int = 8192
-    timeout_seconds: int = 300
+    timeout_seconds: int = 900  # 大文件解析单次 LLM 调用实测可超 5 分钟（90K 字符输入）
     max_retries: int = 2  # 结构化输出校验失败后的喂错重试上限（Q26）
 
 
