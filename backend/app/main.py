@@ -3,6 +3,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api import auth, chapters, delivery, outline as outline_api, projects
@@ -63,7 +64,16 @@ def health():
     return {"status": "ok"}
 
 
-# 前端构建产物托管（frontend/dist 存在时）；API 路由已优先注册，不会冲突
+# 前端构建产物托管（frontend/dist 存在时）
 _dist = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 if _dist.is_dir():
-    app.mount("/", StaticFiles(directory=_dist, html=True), name="frontend")
+    # 静态资源（js/css/图片）直接挂载
+    app.mount("/assets", StaticFiles(directory=_dist / "assets"), name="assets")
+
+    # SPA 回退：其余非 /api 的 GET 一律返回 index.html，前端路由接管
+    @app.get("/{full_path:path}", include_in_schema=False)
+    def spa_fallback(full_path: str):
+        candidate = _dist / full_path
+        if full_path and candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(_dist / "index.html")
