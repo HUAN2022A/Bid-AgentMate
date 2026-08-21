@@ -197,6 +197,46 @@ export const saveChapter = (id: number, chapterId: number, contentMd: string) =>
 export const listChapterVersions = (id: number, chapterId: number) =>
   request<ChapterVersionOut[]>(`/api/projects/${id}/chapters/${chapterId}/versions`)
 
+// ---- 交付：自查 + 导出 ----
+
+export interface CheckSummaryOut {
+  report_path: string
+  tech_items: number
+  covered: number
+  star_reqs: number
+  star_hit: number
+  pending_gaps: number
+  price_hits: number
+}
+
+export interface ExportSummaryOut {
+  export_path: string
+  chapters: number
+  total_words: number
+  pending_gaps: number
+  exported_at: string
+}
+
+export const runCheck = (id: number) =>
+  request<CheckSummaryOut>(`/api/projects/${id}/check`, { method: 'POST' })
+export const runExport = (id: number) =>
+  request<ExportSummaryOut>(`/api/projects/${id}/export`, { method: 'POST' })
+
+export async function downloadFile(id: number, kind: 'check/report' | 'export/docx', filename: string): Promise<void> {
+  const token = getToken()
+  const resp = await fetch(`/api/projects/${id}/${kind}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!resp.ok) throw new ApiError(resp.status, '下载失败')
+  const blob = await resp.blob()
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 export async function uploadTender(id: number, file: File, role = 'main'): Promise<TenderFileOut> {
   const form = new FormData()
   form.append('file', file)

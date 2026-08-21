@@ -196,9 +196,30 @@ export default function ProjectDetailPage() {
             {project.state === 'drafting' && '章节起草中，可进入章节页查看进度。'}
             {project.state === 'draft_done' && '全部章节起草完成，请逐章审阅编辑。'}
           </Typography.Paragraph>
-          <Button type="primary" onClick={() => nav(`/projects/${pid}/chapters`)}>
-            进入章节起草
-          </Button>
+          <Space>
+            <Button type="primary" onClick={() => nav(`/projects/${pid}/chapters`)}>
+              进入章节起草
+            </Button>
+            {project.state === 'draft_done' && (
+              <Button onClick={() => nav(`/projects/${pid}/delivery`)}>
+                去自查与导出
+              </Button>
+            )}
+          </Space>
+        </Card>
+      )}
+
+      {project.state === 'exported' && (
+        <Card title="下一步">
+          <Typography.Paragraph type="secondary">
+            技术文件已导出。可重新自查、补插 [待补] 材料后再次导出覆盖。
+          </Typography.Paragraph>
+          <Space>
+            <Button onClick={() => nav(`/projects/${pid}/chapters`)}>返回章节</Button>
+            <Button type="primary" onClick={() => nav(`/projects/${pid}/delivery`)}>
+              去自查与导出
+            </Button>
+          </Space>
         </Card>
       )}
     </Space>

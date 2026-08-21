@@ -9,6 +9,7 @@ import ProjectDetailPage from './pages/ProjectDetailPage'
 import OutlinePage from './pages/OutlinePage'
 import ChaptersPage from './pages/ChaptersPage'
 import ChapterEditorPage from './pages/ChapterEditorPage'
+import DeliveryPage from './pages/DeliveryPage'
 
 function Shell() {
   const nav = useNavigate()
@@ -64,6 +65,7 @@ export default function App() {
         <Route path="/projects/:id/outline" element={<OutlinePage />} />
         <Route path="/projects/:id/chapters" element={<ChaptersPage />} />
         <Route path="/projects/:id/chapters/:chapterId" element={<ChapterEditorPage />} />
+        <Route path="/projects/:id/delivery" element={<DeliveryPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

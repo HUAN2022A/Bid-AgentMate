@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api import auth, chapters, outline as outline_api, projects
+from app.api import auth, chapters, delivery, outline as outline_api, projects
 from app.core.config import settings
 from app.core.database import Base, engine, SessionLocal
 from app.core.security import hash_password
@@ -36,6 +36,7 @@ app.include_router(auth.router)
 app.include_router(projects.router)
 app.include_router(outline_api.router)
 app.include_router(chapters.router)
+app.include_router(delivery.router)
 
 
 @app.on_event("startup")
