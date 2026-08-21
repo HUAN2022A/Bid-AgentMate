@@ -1,6 +1,7 @@
-"""项目路由：创建/列表/详情/上传招标文件/解析状态/下载提取全文。
+"""项目路由：创建/列表/详情/上传招标文件/触发解析/解析状态/下载提取全文。
 
-阶段 1 闭环：上传 → parsing → outline_pending（或 parse_failed）→ 下载 extracted.txt。
+多文件（2026-08-21 定稿）：上传与解析分离——created 态可反复上传多份（main/spec/attachment），
+POST /{id}/parse 一次性触发全量解析。
 """
 import re
 import time
@@ -17,13 +18,15 @@ from app.core.security import get_current_user
 from app.core.storage import sha256_of, storage
 from app.models.file_object import FileObject
 from app.models.project import Project
-from app.models.tender_file import TenderFile
+from app.models.tender_file import TENDER_ROLES, TenderFile
 from app.models.user import User
 from app.services.analyze_service import dispatch_analyze
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
 ALLOWED_EXT = {".pdf": "pdf", ".docx": "docx"}
+
+ROLE_LABELS = {"main": "招标文件", "spec": "技术规范书", "attachment": "附件"}
 
 
 class ProjectCreate(BaseModel):
@@ -45,6 +48,7 @@ class ProjectOut(BaseModel):
 
 class TenderFileOut(BaseModel):
     id: int
+    role: str
     file_type: str
     original_name: str
     size: int
@@ -94,17 +98,20 @@ def get_project(
     return _to_out(_get_project(db, project_id))
 
 
-@router.post("/{project_id}/tender", response_model=ProjectOut)
+@router.post("/{project_id}/tender", response_model=TenderFileOut)
 async def upload_tender(
     project_id: int,
     file: UploadFile,
+    role: str = "main",
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """上传招标文件并触发解析。parse_failed 状态下重新上传即回退到 parsing（Q21）。"""
+    """上传一份招标文件（仅存文件不触发解析）。created/parse_failed 态可反复上传。"""
     p = _get_project(db, project_id)
     if p.state not in ("created", "parse_failed"):
         raise HTTPException(status_code=409, detail=f"当前状态 {p.state} 不允许上传招标文件")
+    if role not in TENDER_ROLES:
+        raise HTTPException(status_code=400, detail=f"role 须为 {'/'.join(TENDER_ROLES)}")
 
     original = file.filename or "tender"
     ext = PurePosixPath(original).suffix.lower()
@@ -116,7 +123,7 @@ async def upload_tender(
         raise HTTPException(status_code=413, detail=f"文件超过 {settings.max_upload_mb}MB 限制")
 
     safe_name = re.sub(r"[^\w.\-一-鿿]", "_", original)
-    # 重传/同名文件防 UNIQUE 冲突：相对路径带毫秒时间戳（Q25 布局不变，仅文件名唯一化）
+    # 重传/同名文件防 UNIQUE 冲突：相对路径带毫秒时间戳
     rel = f"projects/{project_id}/tender/{int(time.time() * 1000)}-{safe_name}"
     storage.put(rel, data)
 
@@ -131,8 +138,40 @@ async def upload_tender(
     db.add(fo)
     db.flush()
 
-    tender = TenderFile(project_id=project_id, file_object_id=fo.id, file_type=ALLOWED_EXT[ext])
+    tender = TenderFile(
+        project_id=project_id, file_object_id=fo.id, role=role, file_type=ALLOWED_EXT[ext]
+    )
     db.add(tender)
+    if p.state == "parse_failed":  # 回退到 created 等重新触发解析
+        p.state = "created"
+        p.parse_error = ""
+    db.commit()
+    db.refresh(tender)
+    return TenderFileOut(
+        id=tender.id,
+        role=tender.role,
+        file_type=tender.file_type,
+        original_name=original,
+        size=len(data),
+        extract_stats="",
+        extracted=False,
+    )
+
+
+@router.post("/{project_id}/parse", response_model=ProjectOut)
+def trigger_parse(
+    project_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    """一次性触发全量解析：所有已上传文件按角色组装上下文喂 LLM。
+
+    outline_pending 态允许重跑（重新生成解析结果与大纲草稿，覆盖式）。
+    """
+    p = _get_project(db, project_id)
+    if p.state not in ("created", "parse_failed", "outline_pending"):
+        raise HTTPException(status_code=409, detail=f"当前状态 {p.state} 不允许触发解析")
+    tenders = db.query(TenderFile).filter(TenderFile.project_id == project_id).all()
+    if not any(t.role == "main" for t in tenders):
+        raise HTTPException(status_code=400, detail="请先上传招标文件正文（role=main）")
 
     p.state = "parsing"
     p.parse_error = ""
@@ -140,11 +179,7 @@ async def upload_tender(
 
     mode = dispatch_analyze(project_id)
     db.refresh(p)
-    out = _to_out(p)
-    if mode == "sync":  # 同步模式下状态已终态，直接返回最新
-        db.refresh(p)
-        out = _to_out(p)
-    return out
+    return _to_out(p)
 
 
 @router.get("/{project_id}/tender", response_model=list[TenderFileOut])
@@ -162,6 +197,7 @@ def list_tender_files(
     return [
         TenderFileOut(
             id=t.id,
+            role=t.role,
             file_type=t.file_type,
             original_name=fo.original_name,
             size=fo.size,
@@ -174,17 +210,20 @@ def list_tender_files(
 
 @router.get("/{project_id}/tender/extracted")
 def download_extracted(
-    project_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+    project_id: int,
+    role: str = "main",
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
 ):
-    """下载提取全文（阶段 1 的"分析报告"占位；阶段 2 换成 LLM 解析报告 docx）。"""
+    """下载提取全文（按角色取最新一份）。"""
     _get_project(db, project_id)
     tender = (
         db.query(TenderFile)
-        .filter(TenderFile.project_id == project_id)
+        .filter(TenderFile.project_id == project_id, TenderFile.role == role)
         .order_by(TenderFile.id.desc())
         .first()
     )
     if tender is None or not tender.extracted_text_path:
         raise HTTPException(status_code=404, detail="尚无提取结果")
     path = storage.abspath(tender.extracted_text_path)
-    return FileResponse(path, filename="招标文件提取全文.txt", media_type="text/plain; charset=utf-8")
+    return FileResponse(path, filename=f"{ROLE_LABELS.get(role, role)}提取全文.txt", media_type="text/plain; charset=utf-8")

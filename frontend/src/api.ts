@@ -63,6 +63,7 @@ export interface ProjectOut {
 
 export interface TenderFileOut {
   id: number
+  role: string
   file_type: string
   original_name: string
   size: number
@@ -150,11 +151,14 @@ export const saveOutline = (id: number, tree: { nodes: OutlineNodeData[] }) =>
 export const confirmOutline = (id: number) =>
   request<{ version: number; state: string }>(`/api/projects/${id}/outline/confirm`, { method: 'POST' })
 
-export async function uploadTender(id: number, file: File): Promise<ProjectOut> {
+export async function uploadTender(id: number, file: File, role = 'main'): Promise<TenderFileOut> {
   const form = new FormData()
   form.append('file', file)
-  return request<ProjectOut>(`/api/projects/${id}/tender`, { method: 'POST', body: form })
+  return request<TenderFileOut>(`/api/projects/${id}/tender?role=${role}`, { method: 'POST', body: form })
 }
+
+export const triggerParse = (id: number) =>
+  request<ProjectOut>(`/api/projects/${id}/parse`, { method: 'POST' })
 
 /** 下载提取全文：带 JWT 头拉 blob 再触发浏览器下载（直接开窗带不了 Authorization 头） */
 export async function downloadExtracted(id: number): Promise<void> {
