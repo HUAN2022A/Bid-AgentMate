@@ -1,10 +1,12 @@
 # Bid-AgentMate
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 技术标书智能编写平台 —— 把 bid-skills（AI 编程助手 skill 家族）升级为独立软件产品。
 
 **状态**：开发中。设计文档（v0.2 定稿，13 项决策）见 [DESIGN.md](DESIGN.md)。
 
-**上游参考**：`git@github.com:HUAN2022A/bid-skills.git`（skill 版，核心脚本与设计理念来源）
+**上游参考**：作者早期的 bid-skills（AI 编程助手 skill 版，未公开仓库），核心脚本与设计理念来源于此。
 
 ## 一句话
 
