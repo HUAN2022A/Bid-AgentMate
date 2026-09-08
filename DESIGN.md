@@ -2,7 +2,7 @@
 
 > 版本：v0.2（2026-08-20，经 grilling 13 轮问答定稿）
 > 定位：把 bid-skills（AI 编程助手 skill 家族）升级为独立软件产品
-> 源码仓库参考：`git@github.com:HUAN2022A/bid-skills.git`（skill 版，已脱敏）
+> 源码仓库参考：`https://github.com/HUAN2022A/bid-skills`（skill 版，已脱敏）
 
 ---
 

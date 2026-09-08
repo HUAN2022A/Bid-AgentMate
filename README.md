@@ -6,7 +6,7 @@
 
 **状态**：开发中。设计文档（v0.2 定稿，13 项决策）见 [DESIGN.md](DESIGN.md)。
 
-**上游参考**：作者早期的 bid-skills（AI 编程助手 skill 版，未公开仓库），核心脚本与设计理念来源于此。
+**上游参考**：[bid-skills](https://github.com/HUAN2022A/bid-skills)（skill 版，核心脚本与设计理念来源）
 
 ## 一句话
 
