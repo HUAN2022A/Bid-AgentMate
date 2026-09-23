@@ -16,7 +16,7 @@ import ScreenPage from './pages/ScreenPage'
 import WorkbenchImportPage from './pages/WorkbenchImportPage'
 import WbPolishPage from './pages/WbPolishPage'
 import WbCheckPage from './pages/WbCheckPage'
-import WbPlaceholderPage from './pages/WbPlaceholderPage'
+import WbScoringPage from './pages/WbScoringPage'
 
 function Shell() {
   const nav = useNavigate()
@@ -86,7 +86,7 @@ export default function App() {
         <Route path="/projects/:id/workbench" element={<WorkbenchImportPage />} />
         <Route path="/projects/:id/wb-polish" element={<WbPolishPage />} />
         <Route path="/projects/:id/wb-check" element={<WbCheckPage />} />
-        <Route path="/projects/:id/wb-scoring" element={<WbPlaceholderPage page="scoring" title="技术模拟评分" />} />
+        <Route path="/projects/:id/wb-scoring" element={<WbScoringPage />} />
         <Route path="/materials" element={<MaterialsPage />} />
       </Route>
       <Route element={<RequireAuthFullscreen />}>

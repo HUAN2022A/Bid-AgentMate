@@ -241,6 +241,42 @@ export const CHECK_TYPE_META: Record<string, string> = {
   scoring: '技术模拟评分',
 }
 
+// ---- 标书工作台：技术模拟评分（score_estimates） ----
+
+export interface ScoreEstimateOut {
+  id: number
+  item_key: string
+  item: string
+  criteria_original: string
+  max_score: number
+  estimated_score: number
+  evidence: string
+  deduction_reasons: string
+  improvement_advice: string
+  manual_score: number | null
+  manual_note: string
+  status: string
+  run_id: number | null
+}
+
+export const ESTIMATE_STATUS_META: Record<string, { label: string; color: string }> = {
+  ai: { label: 'AI 估分', color: 'processing' },
+  adjusted: { label: '已修正', color: 'warning' },
+  confirmed: { label: '已确认', color: 'success' },
+}
+
+export const listScoreEstimates = (pid: number) =>
+  request<ScoreEstimateOut[]>(`/api/projects/${pid}/score-estimates`)
+export const patchScoreEstimate = (
+  pid: number, estimateId: number,
+  body: { manual_score?: number | null; manual_note?: string; status?: string },
+) =>
+  request<ScoreEstimateOut>(`/api/projects/${pid}/score-estimates/${estimateId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
 export const getBidOutline = (id: number) =>
   request<BidOutlineDraftOut>(`/api/projects/${id}/outline?kind=bid`)
 export const saveBidOutline = (id: number, nodes: BidOutlineNode[]) =>
