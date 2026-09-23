@@ -16,6 +16,7 @@ class LLMLayerSettings(BaseModel):
     temperature: float | None = None
     max_tokens: int | None = None
     timeout_seconds: int | None = None
+    thinking: str | None = None  # enabled | disabled（思考型模型的思考开关）
 
 
 class LLMSettings(BaseModel):
@@ -26,6 +27,9 @@ class LLMSettings(BaseModel):
     max_tokens: int = 8192
     timeout_seconds: int = 900  # 大文件解析单次 LLM 调用实测可超 5 分钟（90K 字符输入）
     max_retries: int = 2  # 结构化输出校验失败后的喂错重试上限（Q26）
+    # 思考型模型（glm-5.3 等）思考计入 max_tokens：解析/起草等任务默认关思考，
+    # 防止长输入下思考耗尽预算导致正文为空；需要时按环节 LLM__DRAFT__THINKING=enabled 打开
+    thinking: str = "disabled"
 
     parse: LLMLayerSettings = LLMLayerSettings()
     draft: LLMLayerSettings = LLMLayerSettings()
@@ -58,6 +62,9 @@ class Settings(BaseSettings):
 
     # 阶段 1 演示模式：解析任务同步执行（不依赖 Redis/Celery），默认 false 走 Celery
     sync_tasks: bool = False
+
+    # 样例模式（标书工作台）：LLM 环节改用固定 fixture，无模型配置也能演示完整流程
+    sample_mode: bool = False
 
 
 settings = Settings()

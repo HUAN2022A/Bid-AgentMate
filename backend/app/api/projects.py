@@ -17,30 +17,34 @@ from app.core.database import get_db
 from app.core.security import get_current_user
 from app.core.storage import sha256_of, storage
 from app.models.file_object import FileObject
-from app.models.project import Project
+from app.models.project import PROJECT_MODES, Project
 from app.models.tender_file import TENDER_ROLES, TenderFile
 from app.models.user import User
 from app.services.analyze_service import dispatch_analyze
+from app.services.workbench_service import dispatch_workbench_parse
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
 
-ALLOWED_EXT = {".pdf": "pdf", ".docx": "docx"}
+ALLOWED_EXT = {".pdf": "pdf", ".docx": "docx", ".doc": "doc"}
 
-ROLE_LABELS = {"main": "招标文件", "spec": "技术规范书", "attachment": "附件"}
+ROLE_LABELS = {"main": "招标文件", "spec": "技术规范书", "attachment": "附件", "bid": "投标文件"}
 
 
 class ProjectCreate(BaseModel):
     name: str
     tender_no: str = ""
+    mode: str = "draft"  # draft 起草流水线 | workbench 标书工作台
 
 
 class ProjectOut(BaseModel):
     id: int
     name: str
     tender_no: str
+    mode: str
     state: str
     parse_error: str
     outline_version: int
+    bid_outline_version: int
     created_at: str
 
     model_config = {"from_attributes": True}
@@ -61,9 +65,11 @@ def _to_out(p: Project) -> ProjectOut:
         id=p.id,
         name=p.name,
         tender_no=p.tender_no,
+        mode=p.mode,
         state=p.state,
         parse_error=p.parse_error,
         outline_version=p.outline_version,
+        bid_outline_version=p.bid_outline_version,
         created_at=p.created_at.isoformat() if p.created_at else "",
     )
 
@@ -72,7 +78,9 @@ def _to_out(p: Project) -> ProjectOut:
 def create_project(
     body: ProjectCreate, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
-    p = Project(name=body.name, tender_no=body.tender_no, created_by=user.id)
+    if body.mode not in PROJECT_MODES:
+        raise HTTPException(status_code=400, detail=f"mode 须为 {'/'.join(PROJECT_MODES)}")
+    p = Project(name=body.name, tender_no=body.tender_no, mode=body.mode, created_by=user.id)
     db.add(p)
     db.commit()
     db.refresh(p)
@@ -82,6 +90,51 @@ def create_project(
 @router.get("", response_model=list[ProjectOut])
 def list_projects(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return [_to_out(p) for p in db.query(Project).order_by(Project.id.desc()).all()]
+
+
+@router.post("/sample-project", response_model=ProjectOut)
+def create_sample_project(
+    db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    """一键创建工作台样例项目：内置迷你招标/规范书/投标三件套，自动触发解析。
+
+    样例模式（SAMPLE_MODE=true）下全程无 LLM 也能跑通导入闭环。
+    """
+    from datetime import datetime
+
+    from app.samples.mini_files import SAMPLE_FILES, ensure_sample_files
+
+    ensure_sample_files()
+    p = Project(
+        name=f"样例项目·翻车机摘钩机器人（{datetime.now().strftime('%m-%d %H:%M')}）",
+        tender_no="JAHB-2026-SAMPLE",
+        mode="workbench",
+        created_by=user.id,
+    )
+    db.add(p)
+    db.flush()
+    for rel, original, role in SAMPLE_FILES:
+        data = storage.get(rel)
+        # file_objects.relative_path 唯一约束：样例文件按项目复制一份，路径与真实上传等价
+        project_rel = f"projects/{p.id}/sample/{original}"
+        storage.put(project_rel, data)
+        fo = FileObject(
+            bucket="project",
+            relative_path=project_rel,
+            original_name=original,
+            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            size=len(data),
+            sha256=sha256_of(data),
+        )
+        db.add(fo)
+        db.flush()
+        db.add(TenderFile(project_id=p.id, file_object_id=fo.id, role=role, file_type="docx"))
+    p.state = "wb_parsing"
+    db.commit()
+    db.refresh(p)
+    dispatch_workbench_parse(p.id)
+    db.refresh(p)
+    return _to_out(p)
 
 
 def _get_project(db: Session, project_id: int) -> Project:
@@ -106,17 +159,19 @@ async def upload_tender(
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """上传一份招标文件（仅存文件不触发解析）。created/parse_failed 态可反复上传。"""
+    """上传一份项目文件（仅存文件不触发解析）。created/parse_failed 态可反复上传。"""
     p = _get_project(db, project_id)
-    if p.state not in ("created", "parse_failed"):
-        raise HTTPException(status_code=409, detail=f"当前状态 {p.state} 不允许上传招标文件")
+    if p.state not in ("created", "parse_failed", "wb_parse_failed"):
+        raise HTTPException(status_code=409, detail=f"当前状态 {p.state} 不允许上传文件")
     if role not in TENDER_ROLES:
         raise HTTPException(status_code=400, detail=f"role 须为 {'/'.join(TENDER_ROLES)}")
+    if role == "bid" and p.mode != "workbench":
+        raise HTTPException(status_code=400, detail="投标文件（role=bid）仅标书工作台项目支持")
 
     original = file.filename or "tender"
     ext = PurePosixPath(original).suffix.lower()
     if ext not in ALLOWED_EXT:
-        raise HTTPException(status_code=400, detail="仅支持 .pdf / .docx 招标文件")
+        raise HTTPException(status_code=400, detail="仅支持 .pdf / .docx / .doc 文件")
 
     data = await file.read()
     if len(data) > settings.max_upload_mb * 1024 * 1024:
@@ -142,7 +197,7 @@ async def upload_tender(
         project_id=project_id, file_object_id=fo.id, role=role, file_type=ALLOWED_EXT[ext]
     )
     db.add(tender)
-    if p.state == "parse_failed":  # 回退到 created 等重新触发解析
+    if p.state in ("parse_failed", "wb_parse_failed"):  # 回退到 created 等重新触发解析
         p.state = "created"
         p.parse_error = ""
     db.commit()
@@ -162,14 +217,26 @@ async def upload_tender(
 def trigger_parse(
     project_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
 ):
-    """一次性触发全量解析：所有已上传文件按角色组装上下文喂 LLM。
-
-    outline_pending 态允许重跑（重新生成解析结果与大纲草稿，覆盖式）。
-    """
+    """一次性触发全量解析。draft：解析+大纲草稿；workbench：招标拆解+投标章节树。"""
     p = _get_project(db, project_id)
+    tenders = db.query(TenderFile).filter(TenderFile.project_id == project_id).all()
+
+    if p.mode == "workbench":
+        if p.state not in ("created", "wb_parse_failed", "wb_outline_pending"):
+            raise HTTPException(status_code=409, detail=f"当前状态 {p.state} 不允许触发解析")
+        if not any(t.role == "main" for t in tenders):
+            raise HTTPException(status_code=400, detail="请先上传招标文件正文（role=main）")
+        if not any(t.role == "bid" for t in tenders):
+            raise HTTPException(status_code=400, detail="请先上传投标文件（role=bid）")
+        p.state = "wb_parsing"
+        p.parse_error = ""
+        db.commit()
+        dispatch_workbench_parse(project_id)
+        db.refresh(p)
+        return _to_out(p)
+
     if p.state not in ("created", "parse_failed", "outline_pending"):
         raise HTTPException(status_code=409, detail=f"当前状态 {p.state} 不允许触发解析")
-    tenders = db.query(TenderFile).filter(TenderFile.project_id == project_id).all()
     if not any(t.role == "main" for t in tenders):
         raise HTTPException(status_code=400, detail="请先上传招标文件正文（role=main）")
 
@@ -177,7 +244,7 @@ def trigger_parse(
     p.parse_error = ""
     db.commit()
 
-    mode = dispatch_analyze(project_id)
+    dispatch_analyze(project_id)
     db.refresh(p)
     return _to_out(p)
 

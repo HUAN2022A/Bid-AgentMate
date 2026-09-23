@@ -15,6 +15,7 @@ from app.api import (
     outline as outline_api,
     projects,
     screen,
+    workbench as workbench_api,
 )
 from app.core.config import settings
 from app.core.database import Base, engine, SessionLocal
@@ -30,6 +31,7 @@ from app.models import (  # noqa: F401 注册表模型
     tech_requirement,
     tender_file,
     user,
+    workbench,
 )
 from app.models.user import User
 
@@ -52,6 +54,7 @@ app.include_router(delivery.router)
 app.include_router(materials.router)
 app.include_router(copilot_api.router)
 app.include_router(screen.router)
+app.include_router(workbench_api.router)
 
 
 @app.on_event("startup")

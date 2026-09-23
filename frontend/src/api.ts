@@ -55,9 +55,11 @@ export interface ProjectOut {
   id: number
   name: string
   tender_no: string
+  mode: string // draft 起草流水线 | workbench 标书工作台
   state: string
   parse_error: string
   outline_version: number
+  bid_outline_version: number
   created_at: string
 }
 
@@ -92,13 +94,16 @@ export async function login(username: string, password: string): Promise<void> {
 
 export const getMe = () => request<UserOut>('/api/auth/me')
 export const listProjects = () => request<ProjectOut[]>('/api/projects')
-export const createProject = (name: string, tenderNo: string) =>
+export const createProject = (name: string, tenderNo: string, mode: 'draft' | 'workbench' = 'draft') =>
   request<ProjectOut>('/api/projects', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, tender_no: tenderNo }),
+    body: JSON.stringify({ name, tender_no: tenderNo, mode }),
   })
 export const getProject = (id: number) => request<ProjectOut>(`/api/projects/${id}`)
+/** 一键样例项目（工作台模式，内置迷你三件套，样例模式下无 LLM 可演示） */
+export const createSampleProject = () =>
+  request<ProjectOut>('/api/projects/sample-project', { method: 'POST' })
 export const listTenderFiles = (id: number) =>
   request<TenderFileOut[]>(`/api/projects/${id}/tender`)
 
@@ -141,15 +146,47 @@ export interface OutlineDraftOut {
 }
 
 export const getAnalysis = (id: number) => request<AnalysisOut>(`/api/projects/${id}/analysis`)
-export const getOutline = (id: number) => request<OutlineDraftOut>(`/api/projects/${id}/outline`)
-export const saveOutline = (id: number, tree: { nodes: OutlineNodeData[] }) =>
-  request<OutlineDraftOut>(`/api/projects/${id}/outline`, {
+export const getOutline = (id: number, kind: 'tender' | 'bid' = 'tender') =>
+  request<OutlineDraftOut>(`/api/projects/${id}/outline?kind=${kind}`)
+export const saveOutline = (id: number, tree: { nodes: OutlineNodeData[] }, kind: 'tender' | 'bid' = 'tender') =>
+  request<OutlineDraftOut>(`/api/projects/${id}/outline?kind=${kind}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ tree }),
   })
-export const confirmOutline = (id: number) =>
-  request<{ version: number; state: string }>(`/api/projects/${id}/outline/confirm`, { method: 'POST' })
+export const confirmOutline = (id: number, kind: 'tender' | 'bid' = 'tender') =>
+  request<{ version: number; state: string; chapters?: number }>(
+    `/api/projects/${id}/outline/confirm?kind=${kind}`,
+    { method: 'POST' },
+  )
+
+// ---- 标书工作台：投标目录树（doc_kind=bid） ----
+
+export interface BidOutlineNode {
+  id: string
+  title: string
+  content_md?: string // 叶章正文（导入内容，确认时物化）
+  children: BidOutlineNode[]
+}
+
+export interface BidOutlineDraftOut {
+  tree: { nodes: BidOutlineNode[] }
+  updated_at: string
+}
+
+export const getBidOutline = (id: number) =>
+  request<BidOutlineDraftOut>(`/api/projects/${id}/outline?kind=bid`)
+export const saveBidOutline = (id: number, nodes: BidOutlineNode[]) =>
+  request<BidOutlineDraftOut>(`/api/projects/${id}/outline?kind=bid`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tree: { nodes } }),
+  })
+export const confirmBidOutline = (id: number) =>
+  request<{ version: number; state: string; chapters: number }>(
+    `/api/projects/${id}/outline/confirm?kind=bid`,
+    { method: 'POST' },
+  )
 
 // ---- 阶段 2：章节起草 ----
 
@@ -203,7 +240,8 @@ export const listChapterVersions = (id: number, chapterId: number) =>
 
 // ---- 章节内 Copilot（Q8 段落级动作）----
 
-export type CopilotActionName = 'rewrite' | 'expand' | 'compress' | 'align_scoring' | 'tabulate' | 'star_response'
+export type CopilotActionName =
+  | 'rewrite' | 'expand' | 'compress' | 'align_scoring' | 'tabulate' | 'star_response'
 
 export const COPILOT_ACTION_LABEL: Record<CopilotActionName, string> = {
   rewrite: '重写',
@@ -621,6 +659,17 @@ export const STATE_META: Record<string, { label: string; color: string }> = {
   draft_done: { label: '起草完成', color: 'cyan' },
   checking: { label: '自查中', color: 'processing' },
   exported: { label: '已导出', color: 'success' },
+  // 标书工作台（mode=workbench）状态
+  wb_parsing: { label: '解析中', color: 'processing' },
+  wb_parse_failed: { label: '解析失败', color: 'error' },
+  wb_outline_pending: { label: '目录待确认', color: 'warning' },
+  wb_ready: { label: '工作台就绪', color: 'success' },
+}
+
+/** 项目模式标签（起草流水线 | 标书工作台） */
+export const PROJECT_MODE_META: Record<string, { label: string; color: string }> = {
+  draft: { label: '起草', color: 'blue' },
+  workbench: { label: '工作台', color: 'purple' },
 }
 
 /** 章节状态中文标签 + 颜色（章节页与驾驶舱共用一份映射） */
@@ -630,4 +679,5 @@ export const CHAPTER_STATE_META: Record<string, { label: string; color: string }
   draft_done: { label: '起草完成', color: 'cyan' },
   draft_failed: { label: '起草失败', color: 'error' },
   edited: { label: '已编辑', color: 'success' },
+  imported: { label: '已导入', color: 'geekblue' },
 }

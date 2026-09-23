@@ -23,3 +23,17 @@ def draft_chapter(project_id: int, chapter_id: int) -> None:
     from app.services.draft_service import run_draft_chapter
 
     run_draft_chapter(project_id, chapter_id)
+
+
+@celery_app.task(name="app.worker.workbench_parse")
+def workbench_parse(project_id: int) -> None:
+    from app.services.workbench_service import run_workbench_parse
+
+    run_workbench_parse(project_id)
+
+
+@celery_app.task(name="app.worker.workbench_check")
+def workbench_check(run_id: int) -> None:
+    from app.services.workbench_check_service import execute_run
+
+    execute_run(run_id)

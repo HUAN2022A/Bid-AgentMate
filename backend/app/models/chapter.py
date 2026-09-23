@@ -12,10 +12,11 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.database import Base
 
 # 章节状态机：pending → drafting → draft_done | draft_failed；人工编辑后 edited
-CHAPTER_STATES = ["pending", "drafting", "draft_done", "draft_failed", "edited"]
+# workbench 模式：投标文件导入的章节起始为 imported，人工保存后同 edited
+CHAPTER_STATES = ["pending", "drafting", "draft_done", "draft_failed", "edited", "imported"]
 
-# 版本来源（Q24）
-VERSION_SOURCES = ["human", "ai_chapter", "ai_paragraph"]
+# 版本来源（Q24）；imported = 工作台投标文件导入
+VERSION_SOURCES = ["human", "ai_chapter", "ai_paragraph", "imported"]
 
 
 class Chapter(Base):

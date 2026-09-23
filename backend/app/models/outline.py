@@ -5,7 +5,7 @@
 """
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, String, func
+from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import JSON, TypeDecorator
@@ -27,9 +27,13 @@ class JSONBCompat(TypeDecorator):
 
 class OutlineDraft(Base):
     __tablename__ = "outline_drafts"
+    __table_args__ = (
+        UniqueConstraint("project_id", "doc_kind", name="uq_outline_draft_project_kind"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), unique=True, index=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
+    doc_kind: Mapped[str] = mapped_column(String(8), default="tender", index=True)  # tender 起草大纲 | bid 投标目录树
     tree: Mapped[dict] = mapped_column(JSONBCompat)  # {nodes: [{id,title,target_words,scoring_keys[],children[]}]}
     ai_raw_tree: Mapped[dict] = mapped_column(JSONBCompat)  # LLM 原始输出，永不改，供对比
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
@@ -43,6 +47,7 @@ class OutlineSnapshot(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     project_id: Mapped[int] = mapped_column(ForeignKey("projects.id"), index=True)
+    doc_kind: Mapped[str] = mapped_column(String(8), default="tender", index=True)
     version: Mapped[int] = mapped_column()
     tree: Mapped[dict] = mapped_column(JSONBCompat)
     created_by: Mapped[int] = mapped_column(ForeignKey("users.id"))

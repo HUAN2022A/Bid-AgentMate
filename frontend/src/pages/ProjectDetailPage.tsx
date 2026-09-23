@@ -1,7 +1,7 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Card, Descriptions, Popconfirm, Space, Table, Tag, Typography, Upload, message } from 'antd'
 import { DashboardOutlined, DownloadOutlined, FundProjectionScreenOutlined, InboxOutlined, PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import {
   downloadExtracted,
   getProject,
@@ -40,6 +40,8 @@ export default function ProjectDetailPage() {
   })
 
   if (isLoading || !project) return <Card loading />
+  // 工作台项目不走起草流水线：详情页直接分流到工作台导入页
+  if (project.mode === 'workbench') return <Navigate to={`/projects/${pid}/workbench`} replace />
 
   const meta = STATE_META[project.state] ?? { label: project.state, color: 'default' }
   const canUpload = project.state === 'created' || project.state === 'parse_failed'

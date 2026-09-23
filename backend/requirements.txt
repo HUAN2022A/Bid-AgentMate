@@ -19,3 +19,4 @@ python-jose[cryptography]>=3.3
 bcrypt>=4.1
 pytest>=8.0
 vcrpy>=6.0
+pywin32>=306

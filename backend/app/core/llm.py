@@ -20,7 +20,8 @@ T = TypeVar("T", bound=BaseModel)
 
 # 环节默认值：段落 Copilot 是交互式短调用，不能继承解析用的 900s 超时与 0.3 温度
 _LAYER_DEFAULTS: dict[str, dict[str, Any]] = {
-    "copilot": {"timeout_seconds": 120, "temperature": 0.2, "max_tokens": 4096},
+    # 思考型模型：思考计入 max_tokens，段落输出 1-3k 字 + 思考开销，4096 会截断成空正文
+    "copilot": {"timeout_seconds": 300, "temperature": 0.2, "max_tokens": 16384},
 }
 
 
@@ -37,6 +38,12 @@ class LLMCallConfig:
     max_tokens: int
     timeout_seconds: int
     max_retries: int
+    thinking: str = ""  # enabled | disabled | ""（不传该参数）
+
+    @property
+    def extra_body(self) -> dict | None:
+        """思考开关等供应商扩展参数（智谱 OpenAI 兼容层的 thinking 字段）。"""
+        return {"thinking": {"type": self.thinking}} if self.thinking else None
 
 
 def resolve_llm(layer: str = "", **overrides: Any) -> LLMCallConfig:
@@ -62,6 +69,7 @@ def resolve_llm(layer: str = "", **overrides: Any) -> LLMCallConfig:
         max_tokens=pick("max_tokens"),
         timeout_seconds=pick("timeout_seconds"),
         max_retries=g.max_retries,
+        thinking=pick("thinking") or "",
     )
 
 
@@ -128,6 +136,7 @@ def chat_structured(
                 messages=messages,
                 temperature=cfg.temperature,
                 max_tokens=cfg.max_tokens,
+                extra_body=cfg.extra_body,
             )
         except Exception as e:
             raise LLMError(f"LLM 请求失败: {type(e).__name__}: {e}") from e
@@ -153,6 +162,7 @@ def chat_text_stream(
     user_prompt: str,
     *,
     layer: str = "",
+    timeout: int | None = None,
     temperature: float | None = None,
     max_tokens: int | None = None,
 ) -> Iterator[str]:
@@ -164,7 +174,7 @@ def chat_text_stream(
       客户端断开时正常向上传播（调用方据此放弃落库）
     - 无喂错重试：纯文本无 schema 可校验，空输出兜底由上层调用方负责
     """
-    cfg = resolve_llm(layer, temperature=temperature, max_tokens=max_tokens)
+    cfg = resolve_llm(layer, timeout_seconds=timeout, temperature=temperature, max_tokens=max_tokens)
     client = _client(cfg)
     messages = [
         {"role": "system", "content": system_prompt},
@@ -177,6 +187,7 @@ def chat_text_stream(
             temperature=cfg.temperature,
             max_tokens=cfg.max_tokens,
             stream=True,
+            extra_body=cfg.extra_body,
         )
         for chunk in stream:
             if not chunk.choices:

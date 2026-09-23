@@ -1,7 +1,8 @@
 """招标文件表：原始文件引用 + 提取全文 + 解析结果。
 
 多文件（2026-08-21 定稿）：一个项目可传多份，role 区分角色——
-main 招标文件正文（评分/废标/商务）、spec 技术规范书（★参数主来源）、attachment 其他附件。
+main 招标文件正文（评分/废标/商务）、spec 技术规范书（★参数主来源）、attachment 其他附件、
+bid 投标文件（仅 workbench 模式：被润色/检查/评分的对象）。
 上传与解析分离：created 态可反复上传，点"开始解析"才触发 run_analyze。
 """
 from datetime import datetime
@@ -11,7 +12,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 
-TENDER_ROLES = ["main", "spec", "attachment"]
+TENDER_ROLES = ["main", "spec", "attachment", "bid"]
 
 
 class TenderFile(Base):

@@ -24,6 +24,7 @@ from app.models.scoring_item import ScoringItemRow  # noqa: E402
 from app.models.tech_requirement import TechRequirementRow  # noqa: E402
 from app.models.tender_file import TenderFile  # noqa: E402
 from app.schemas.analysis import TenderAnalysisResult  # noqa: E402
+from app.samples import sample_tender_analysis  # noqa: E402
 
 from scripts.extract_docx import extract_docx_lines  # noqa: E402
 from scripts.extract_pdf import extract_pdf_lines  # noqa: E402
@@ -100,12 +101,19 @@ def _smart_truncate(text: str, budget: int) -> str:
 
 
 def _extract_one(tender: TenderFile, fo: FileObject) -> tuple[str, dict]:
-    """单文件提取全文（幂等：已提取则复用）。"""
+    """单文件提取全文（幂等：已提取则复用）。.doc 先无头转 .docx 再提取。"""
     if tender.extracted_text_path and storage.exists(tender.extracted_text_path):
         return storage.get(tender.extracted_text_path).decode("utf-8"), json.loads(tender.extract_stats or "{}")
     src = storage.abspath(fo.relative_path)
     if tender.file_type == "pdf":
         lines, stats = extract_pdf_lines(str(src))
+    elif tender.file_type == "doc":
+        from app.services.doc_converter import convert_doc_to_docx  # noqa: PLC0415 避免循环导入风险
+
+        conv_rel = f"projects/{tender.project_id}/tender/converted-{tender.id}.docx"
+        if not storage.exists(conv_rel):
+            convert_doc_to_docx(str(src), str(storage.abspath(conv_rel)))
+        lines, stats = extract_docx_lines(str(storage.abspath(conv_rel)))
     else:
         lines, stats = extract_docx_lines(str(src))
     text = "\n".join(lines)
@@ -114,6 +122,62 @@ def _extract_one(tender: TenderFile, fo: FileObject) -> tuple[str, dict]:
     tender.extracted_text_path = text_rel
     tender.extract_stats = json.dumps(stats, ensure_ascii=False)
     return text, stats
+
+
+def _analyze_tender_core(db: Session, project: Project, tenders: list[TenderFile]) -> str:
+    """提取 + LLM 拆解 + 入库（不动项目状态，不生成大纲）。返回软告警串（空=无）。
+
+    起草流水线（run_analyze）与工作台编排（workbench_service）共用；
+    样例模式下 LLM 调用替换为固定 fixture。
+    """
+    mains = [t for t in tenders if t.role == "main"]
+
+    # 1. 全文件提取 + 按角色分块组装（main 取最新一份，spec/attachment 全取）
+    budgets = {"main": BUDGET_MAIN, "spec": BUDGET_SPEC, "attachment": BUDGET_ATTACHMENT}
+    blocks = []
+    scanned_warn = False
+    ordered = [mains[-1]] + [t for t in tenders if t.role != "main"]
+    for tender in ordered:
+        fo = db.get(FileObject, tender.file_object_id)
+        text, stats = _extract_one(tender, fo)
+        scanned_warn = scanned_warn or stats.get("maybe_scanned", False)
+        label = ROLE_BLOCK_LABEL.get(tender.role, tender.role)
+        blocks.append(
+            f"【{fo.original_name}｜{label}】\n" + _smart_truncate(text, budgets.get(tender.role, BUDGET_ATTACHMENT))
+        )
+    # 提前提交提取结果：释放 sqlite 写锁（否则长 LLM 调用期间其他请求的写库会 database is locked）
+    db.commit()
+    fulltext = "\n\n".join(blocks)
+
+    # 2. LLM 拆解（Q26 契约；样例模式走固定 fixture）
+    if settings.sample_mode:
+        result = sample_tender_analysis()
+    else:
+        result = chat_structured(SYSTEM_PROMPT, fulltext, TenderAnalysisResult)
+        # 业务校验（Q26：校验失败转重试而非入库）：评分项为空或分值全零 = 核心契约未满足
+        def _scoring_invalid(r: TenderAnalysisResult) -> bool:
+            return not r.scoring.items or all(it.score == 0 for it in r.scoring.items)
+
+        if _scoring_invalid(result):
+            retry_prompt = (
+                "你上次的提取结果评分项为空或分值全为 0，这不满足要求。"
+                "招标文件正文中必有'评标办法/评分标准/评分细则'章节（含评分因素、满分值、评分标准的表格），"
+                "请重新阅读并逐条提取全部评分项（含技术/商务/价格各卷，每条带真实分值），"
+                "只输出修正后的完整 JSON 对象。\n\n" + fulltext
+            )
+            result = chat_structured(SYSTEM_PROMPT, retry_prompt, TenderAnalysisResult)
+        if _scoring_invalid(result):
+            raise LLMError("LLM 两次提取评分项均为空或分值全零，转人工核对")
+
+    # 软告警：技术卷分值明显偏低时记录（不阻断，人工在大纲页核对）
+    soft_warn = ""
+    tech_total = sum(it.score for it in result.scoring.items if it.category == "技术")
+    if 0 < tech_total < 40:
+        soft_warn = f"WARN: 技术卷评分合计仅 {tech_total} 分，可能有评分项漏提，请人工核对评分办法"
+    _persist_analysis(db, project, mains[-1], result)
+    if scanned_warn:
+        soft_warn = (soft_warn + "；" if soft_warn else "") + "部分文件平均每页字符偏少，可能是扫描件，请人工核对提取质量"
+    return soft_warn
 
 
 def run_analyze(project_id: int) -> None:
@@ -129,59 +193,20 @@ def run_analyze(project_id: int) -> None:
             .order_by(TenderFile.id)
             .all()
         )
-        mains = [t for t in tenders if t.role == "main"]
-        if not mains:
+        if not any(t.role == "main" for t in tenders):
             _fail(db, project, "未找到招标文件正文（role=main）")
             return
 
         try:
-            # 1. 全文件提取 + 按角色分块组装（main 取最新一份，spec/attachment 全取）
-            budgets = {"main": BUDGET_MAIN, "spec": BUDGET_SPEC, "attachment": BUDGET_ATTACHMENT}
-            blocks = []
-            scanned_warn = False
-            seen_roles: dict[str, int] = {}
-            ordered = [mains[-1]] + [t for t in tenders if t.role != "main"]
-            for tender in ordered:
-                fo = db.get(FileObject, tender.file_object_id)
-                text, stats = _extract_one(tender, fo)
-                scanned_warn = scanned_warn or stats.get("maybe_scanned", False)
-                seen_roles[tender.role] = seen_roles.get(tender.role, 0) + 1
-                label = ROLE_BLOCK_LABEL.get(tender.role, tender.role)
-                blocks.append(
-                    f"【{fo.original_name}｜{label}】\n" + _smart_truncate(text, budgets.get(tender.role, BUDGET_ATTACHMENT))
-                )
-            db.flush()
-            fulltext = "\n\n".join(blocks)
-
-            # 2. LLM 拆解（Q26 契约）
-            result = chat_structured(SYSTEM_PROMPT, fulltext, TenderAnalysisResult)
-            # 业务校验（Q26：校验失败转重试而非入库）：评分项为空或分值全零 = 核心契约未满足
-            def _scoring_invalid(r: TenderAnalysisResult) -> bool:
-                return not r.scoring.items or all(it.score == 0 for it in r.scoring.items)
-
-            if _scoring_invalid(result):
-                retry_prompt = (
-                    "你上次的提取结果评分项为空或分值全为 0，这不满足要求。"
-                    "招标文件正文中必有'评标办法/评分标准/评分细则'章节（含评分因素、满分值、评分标准的表格），"
-                    "请重新阅读并逐条提取全部评分项（含技术/商务/价格各卷，每条带真实分值），"
-                    "只输出修正后的完整 JSON 对象。\n\n" + fulltext
-                )
-                result = chat_structured(SYSTEM_PROMPT, retry_prompt, TenderAnalysisResult)
-            if _scoring_invalid(result):
-                raise LLMError("LLM 两次提取评分项均为空或分值全零，转人工核对")
-
-            # 软告警：技术卷分值明显偏低时记录（不阻断，人工在大纲页核对）
-            soft_warn = ""
-            tech_total = sum(it.score for it in result.scoring.items if it.category == "技术")
-            if 0 < tech_total < 40:
-                soft_warn = f"WARN: 技术卷评分合计仅 {tech_total} 分，可能有评分项漏提，请人工核对评分办法"
-            _persist_analysis(db, project, mains[-1], result)
+            soft_warn = _analyze_tender_core(db, project, tenders)
 
             # 3. LLM 生成大纲草稿（Q27：草稿 + AI 原始件同存）
-            outline_tree = _generate_outline(result)
-            draft = db.query(OutlineDraft).filter(OutlineDraft.project_id == project_id).first()
+            outline_tree = _generate_outline(_last_analysis_result(db, project))
+            draft = db.query(OutlineDraft).filter(
+                OutlineDraft.project_id == project_id, OutlineDraft.doc_kind == "tender"
+            ).first()
             if draft is None:
-                draft = OutlineDraft(project_id=project_id, tree=outline_tree, ai_raw_tree=outline_tree)
+                draft = OutlineDraft(project_id=project_id, doc_kind="tender", tree=outline_tree, ai_raw_tree=outline_tree)
                 db.add(draft)
             else:
                 draft.tree = outline_tree
@@ -189,8 +214,6 @@ def run_analyze(project_id: int) -> None:
 
             project.state = "outline_pending"
             project.parse_error = soft_warn
-            if scanned_warn:
-                project.parse_error = (soft_warn + "；" if soft_warn else "") + "部分文件平均每页字符偏少，可能是扫描件，请人工核对提取质量"
             db.commit()
         except LLMError as e:
             _fail(db, project, str(e))
@@ -198,6 +221,17 @@ def run_analyze(project_id: int) -> None:
             _fail(db, project, f"{type(e).__name__}: {e}")
     finally:
         db.close()
+
+
+def _last_analysis_result(db: Session, project: Project) -> TenderAnalysisResult:
+    """从 yaml 快照读回最近一次解析结果（大纲生成的输入；样例模式直接回 fixture）。"""
+    if settings.sample_mode:
+        return sample_tender_analysis()
+    yaml_rel = f"projects/{project.id}/tender/tender-analysis.yaml"
+    if not storage.exists(yaml_rel):
+        raise LLMError("解析快照缺失，无法生成大纲")
+    data = yaml.safe_load(storage.get(yaml_rel).decode("utf-8")) or {}
+    return TenderAnalysisResult.model_validate(data)
 
 
 def _fail(db: Session, project: Project, msg: str) -> None:
