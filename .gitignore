@@ -11,3 +11,5 @@ dist/
 uploads/
 exports/
 backend/data/
+.screen-qa/
+.demo-videos-raw/
