@@ -200,8 +200,9 @@ def _copilot_sse(
     yield ": stream-open\n\n"
     t0 = time.monotonic()
     chunks: list[str] = []
+    llm_kwargs = {"max_tokens": ctx.spec.max_tokens, "timeout": ctx.spec.timeout_seconds}
     try:
-        for delta in chat_text_stream(ctx.system_prompt, ctx.user_prompt, layer="copilot"):
+        for delta in chat_text_stream(ctx.system_prompt, ctx.user_prompt, layer="copilot", **llm_kwargs):
             chunks.append(delta)
             yield _sse("delta", {"text": delta})
     except LLMError as e:
@@ -212,7 +213,7 @@ def _copilot_sse(
         # 空输出兜底（对应非流式 min_length=1 → 喂错重试）：追加纠错指令整体重流一次，delta 照常外流
         retry_chunks: list[str] = []
         try:
-            for delta in chat_text_stream(ctx.system_prompt, ctx.user_prompt + EMPTY_RETRY_SUFFIX, layer="copilot"):
+            for delta in chat_text_stream(ctx.system_prompt, ctx.user_prompt + EMPTY_RETRY_SUFFIX, layer="copilot", **llm_kwargs):
                 retry_chunks.append(delta)
                 yield _sse("delta", {"text": delta})
             content = "".join(retry_chunks).strip()

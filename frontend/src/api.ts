@@ -241,7 +241,7 @@ export const listChapterVersions = (id: number, chapterId: number) =>
 // ---- 章节内 Copilot（Q8 段落级动作）----
 
 export type CopilotActionName =
-  | 'rewrite' | 'expand' | 'compress' | 'align_scoring' | 'tabulate' | 'star_response'
+  | 'rewrite' | 'expand' | 'compress' | 'align_scoring' | 'tabulate' | 'star_response' | 'polish'
 
 export const COPILOT_ACTION_LABEL: Record<CopilotActionName, string> = {
   rewrite: '重写',
@@ -250,6 +250,7 @@ export const COPILOT_ACTION_LABEL: Record<CopilotActionName, string> = {
   align_scoring: '对齐评分点',
   tabulate: '表格化',
   star_response: '★条款响应',
+  polish: '整章润色',
 }
 
 export interface CopilotRequest {

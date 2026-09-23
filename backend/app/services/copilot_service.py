@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from sqlalchemy.orm import Session
 
 from app.core.llm import chat_structured, resolve_llm
-from app.models.chapter import Chapter
+from app.models.chapter import Chapter, ChapterVersion
 from app.models.copilot import CopilotAction
 from app.models.material import Material, MaterialSnapshot
 from app.models.scoring_item import ScoringItemRow
@@ -38,6 +38,9 @@ class ActionSpec:
     inject_neighbors: bool = False  # 注入前后文
     needs_requirement: bool = False  # star_response：必须指定技术需求
     ratio: tuple[float, float] | None = None  # 软校验：输出/输入字符比预期区间
+    chapter_input: bool = False  # 工作台整章动作：服务端自取最新版本全文为输入
+    max_tokens: int | None = None  # 覆盖环节默认 max_tokens（整章输出比段落长得多）
+    timeout_seconds: int | None = None  # 覆盖环节默认超时（整章生成耗时更长）
 
 
 ACTIONS: dict[str, ActionSpec] = {
@@ -77,6 +80,15 @@ ACTIONS: dict[str, ActionSpec] = {
         constraint="我方响应值不得低于招标要求；涉及我方能力/业绩的事实只准引用素材卡，无支撑处标 [待补：xxx]",
         needs_selection=False, inject_materials=True, inject_neighbors=True, needs_requirement=True,
     ),
+    "polish": ActionSpec(
+        label="整章润色",
+        task="对整章正文执行润色：保持章节结构与层级、全部技术要点、参数值和表格不变，按用户给定的润色目标提升表达质量；无明确目标时全面提升专业性、具体度与说服力",
+        constraint="不得删除任何事实与参数，不得改变章节结构；新增公司事实只准引用素材卡，无支撑处标 [待补：xxx]",
+        needs_selection=False, chapter_input=True,
+        inject_scoring=True, inject_materials=True,
+        ratio=(0.6, 1.6),
+        max_tokens=32768, timeout_seconds=900,
+    ),
 }
 
 SYSTEM_PROMPT_TEMPLATE = """你是技术标书编辑专家。任务：对技术标书中的一个段落执行「{label}」——{task}。
@@ -97,8 +109,12 @@ EMPTY_RETRY_SUFFIX = "\n\n你上次输出为空，请重新只输出处理后的
 
 def _load_scoring(db: Session, project_id: int, chapter: Chapter, req: CopilotRequest, spec: ActionSpec) -> list[ScoringItemRow]:
     chapter_keys = [k for k in chapter.scoring_keys.split(",") if k]
-    if req.action == "align_scoring":
-        keys = [req.scoring_key] if req.scoring_key else chapter_keys
+    # 显式指定评分点的动作：align_scoring 必填；polish 可选（工作台章节无挂接时手动指定）
+    explicit = req.action in ("align_scoring", "polish")
+    if explicit and req.scoring_key:
+        keys = [req.scoring_key]
+    elif req.action == "align_scoring":
+        keys = chapter_keys
         if not keys:
             raise ValueError("本章未挂接评分点，请在面板中指定要对齐的评分点")
     elif spec.inject_scoring:
@@ -112,7 +128,7 @@ def _load_scoring(db: Session, project_id: int, chapter: Chapter, req: CopilotRe
         .filter(ScoringItemRow.project_id == project_id, ScoringItemRow.item_key.in_(keys))
         .all()
     )
-    if req.action == "align_scoring" and req.scoring_key and not items:
+    if explicit and req.scoring_key and not items:
         raise ValueError(f"评分点 {req.scoring_key} 不存在")
     return items
 
@@ -165,13 +181,23 @@ def prepare_copilot(
 ) -> CopilotContext:
     """第一段：组装上下文。契约类错误抛 ValueError（API 层转 422，流式路径在开流前同步调用）。
 
-    素材快照只 db.add 不 commit（与非流式原行为一致），由 finalize 一并落库；
-    流式被取消时随 session 回滚丢弃，_snapshot_materials 幂等，下次生成重加无害。
+    素材快照在返回前即提交（幂等）：流式生成期间不持有写锁；被取消只是多存引用快照，无副作用。
     """
     spec = ACTIONS.get(req.action)
     if spec is None:
         raise ValueError(f"未知动作 {req.action}，可选：{'/'.join(ACTIONS)}")
     selection = req.selection_md.strip()
+    if spec.chapter_input:
+        # 工作台整章动作：输入 = 最新版本全文（服务端自取，客户端不回传大文本）
+        v = (
+            db.query(ChapterVersion)
+            .filter(ChapterVersion.chapter_id == chapter.id)
+            .order_by(ChapterVersion.version_no.desc())
+            .first()
+        )
+        selection = (v.content_md if v else "").strip()
+        if not selection:
+            raise ValueError("本章暂无正文，无法整章润色")
     if spec.needs_selection and not selection:
         raise ValueError("请先选中要处理的段落")
 
@@ -179,7 +205,8 @@ def prepare_copilot(
     parts = [f"# 章节信息\n编号：{chapter.chapter_key}\n标题：{chapter.title}"]
 
     if selection:
-        parts.append(f"# 选中段落（处理对象）\n{selection}")
+        obj_title = "整章正文（处理对象）" if spec.chapter_input else "选中段落（处理对象）"
+        parts.append(f"# {obj_title}\n{selection}")
 
     if spec.inject_neighbors:
         if req.prev_md.strip():
@@ -233,6 +260,8 @@ def prepare_copilot(
         parts.append(f"# 用户指令\n{req.instruction.strip()}")
 
     system_prompt = SYSTEM_PROMPT_TEMPLATE.format(label=spec.label, task=spec.task, constraint=spec.constraint)
+    # 提前提交素材快照（幂等）：避免流式生成期间持有写锁阻塞其他请求（database is locked 教训）
+    db.commit()
     return CopilotContext(
         spec=spec,
         system_prompt=system_prompt,
@@ -270,6 +299,9 @@ def run_copilot(
     """单次动作（非流式）：契约类错误抛 ValueError（API 层转 422），LLM 失败抛 LLMError（转 502）。"""
     ctx = prepare_copilot(db, project_id, chapter, req)
     t0 = time.monotonic()
-    result = chat_structured(ctx.system_prompt, ctx.user_prompt, CopilotResult, layer="copilot")
+    result = chat_structured(
+        ctx.system_prompt, ctx.user_prompt, CopilotResult, layer="copilot",
+        max_tokens=ctx.spec.max_tokens, timeout=ctx.spec.timeout_seconds,
+    )
     latency_ms = int((time.monotonic() - t0) * 1000)
     return finalize_copilot(db, project_id, chapter, req, user_id, ctx, result.content_md.strip(), latency_ms)

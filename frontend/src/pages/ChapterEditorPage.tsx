@@ -23,6 +23,7 @@ import {
   type SaveSourceHint,
 } from '../api'
 import CopilotBubble from '../components/copilot/CopilotBubble'
+import EditorToolbar from '../components/editor/EditorToolbar'
 import CopilotPreview from '../components/copilot/CopilotPreview'
 import StarResponseModal from '../components/copilot/StarResponseModal'
 import { useCopilot } from '../components/copilot/useCopilot'
@@ -210,6 +211,7 @@ export default function ChapterEditorPage() {
           background: '#fff',
         }}
       >
+        <EditorToolbar editor={editor} />
         {editor && (
           <CopilotBubble
             editor={editor}
