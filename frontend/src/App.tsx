@@ -15,6 +15,7 @@ import MaterialsPage from './pages/MaterialsPage'
 import ScreenPage from './pages/ScreenPage'
 import WorkbenchImportPage from './pages/WorkbenchImportPage'
 import WbPolishPage from './pages/WbPolishPage'
+import WbCheckPage from './pages/WbCheckPage'
 import WbPlaceholderPage from './pages/WbPlaceholderPage'
 
 function Shell() {
@@ -84,7 +85,7 @@ export default function App() {
         <Route path="/projects/:id/delivery" element={<DeliveryPage />} />
         <Route path="/projects/:id/workbench" element={<WorkbenchImportPage />} />
         <Route path="/projects/:id/wb-polish" element={<WbPolishPage />} />
-        <Route path="/projects/:id/wb-check" element={<WbPlaceholderPage page="check" title="标书检查" />} />
+        <Route path="/projects/:id/wb-check" element={<WbCheckPage />} />
         <Route path="/projects/:id/wb-scoring" element={<WbPlaceholderPage page="scoring" title="技术模拟评分" />} />
         <Route path="/materials" element={<MaterialsPage />} />
       </Route>

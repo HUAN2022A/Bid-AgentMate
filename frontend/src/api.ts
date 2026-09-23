@@ -174,6 +174,73 @@ export interface BidOutlineDraftOut {
   updated_at: string
 }
 
+// ---- 标书工作台：检查（check_runs + findings） ----
+
+export interface CheckRunOut {
+  id: number
+  check_type: string
+  scope: string
+  chapter_keys: string[]
+  state: string
+  progress: number
+  progress_total: number
+  stats: Record<string, unknown>
+  error: string
+  created_at: string
+  finished_at: string
+}
+
+export interface FindingOut {
+  id: number
+  run_id: number
+  chapter_key: string
+  check_type: string
+  severity: string
+  tender_basis: string
+  bid_evidence: string
+  location: string
+  analysis: string
+  suggestion: string
+  confirm_status: string
+  created_at: string
+}
+
+export const runWbCheck = (pid: number, body: { check_type: string; chapter_keys?: string[] }) =>
+  request<CheckRunOut>(`/api/projects/${pid}/checks`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+export const listCheckRuns = (pid: number, checkType: string) =>
+  request<CheckRunOut[]>(`/api/projects/${pid}/checks/runs?check_type=${checkType}`)
+export const listFindings = (pid: number, checkType: string) =>
+  request<FindingOut[]>(`/api/projects/${pid}/findings?check_type=${checkType}`)
+export const patchFinding = (pid: number, findingId: number, confirmStatus: string) =>
+  request<FindingOut>(`/api/projects/${pid}/findings/${findingId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ confirm_status: confirmStatus }),
+  })
+
+/** 检查严重程度/确认状态中文标签 */
+export const SEVERITY_META: Record<string, { label: string; color: string }> = {
+  high: { label: '高', color: 'red' },
+  medium: { label: '中', color: 'orange' },
+  low: { label: '低', color: 'blue' },
+}
+export const FINDING_STATUS_META: Record<string, { label: string; color: string }> = {
+  pending: { label: '待确认', color: 'default' },
+  confirmed: { label: '属实', color: 'red' },
+  dismissed: { label: '误报', color: 'default' },
+  fixed: { label: '已修复', color: 'success' },
+}
+export const CHECK_TYPE_META: Record<string, string> = {
+  disqualification: '废标项检查',
+  typo: '错别字检查',
+  logic: '逻辑谬误检查',
+  scoring: '技术模拟评分',
+}
+
 export const getBidOutline = (id: number) =>
   request<BidOutlineDraftOut>(`/api/projects/${id}/outline?kind=bid`)
 export const saveBidOutline = (id: number, nodes: BidOutlineNode[]) =>
