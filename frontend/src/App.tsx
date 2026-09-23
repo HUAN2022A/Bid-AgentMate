@@ -9,6 +9,7 @@ import ProjectDetailPage from './pages/ProjectDetailPage'
 import OutlinePage from './pages/OutlinePage'
 import ChaptersPage from './pages/ChaptersPage'
 import ChapterEditorPage from './pages/ChapterEditorPage'
+import CockpitPage from './pages/CockpitPage'
 import DeliveryPage from './pages/DeliveryPage'
 import MaterialsPage from './pages/MaterialsPage'
 
@@ -65,8 +66,9 @@ export default function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route element={<RequireAuth />}>
         <Route path="/" element={<ProjectListPage />} />
-        <Route path="/projects/:id" element={<ProjectDetailPage />} />
-        <Route path="/projects/:id/outline" element={<OutlinePage />} />
+          <Route path="/projects/:id" element={<ProjectDetailPage />} />
+          <Route path="/projects/:id/cockpit" element={<CockpitPage />} />
+          <Route path="/projects/:id/outline" element={<OutlinePage />} />
         <Route path="/projects/:id/chapters" element={<ChaptersPage />} />
         <Route path="/projects/:id/chapters/:chapterId" element={<ChapterEditorPage />} />
         <Route path="/projects/:id/delivery" element={<DeliveryPage />} />

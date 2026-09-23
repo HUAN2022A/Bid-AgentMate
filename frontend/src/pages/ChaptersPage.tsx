@@ -3,15 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Card, Popconfirm, Progress, Space, Table, Tag, Typography, message } from 'antd'
 import { EditOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
-import { draftAllChapters, getProject, listChapters, STATE_META, type ChapterOut } from '../api'
-
-const CH_STATE_META: Record<string, { label: string; color: string }> = {
-  pending: { label: '待起草', color: 'default' },
-  drafting: { label: '起草中', color: 'processing' },
-  draft_done: { label: '起草完成', color: 'cyan' },
-  draft_failed: { label: '起草失败', color: 'error' },
-  edited: { label: '已编辑', color: 'success' },
-}
+import { draftAllChapters, getProject, listChapters, CHAPTER_STATE_META, STATE_META, type ChapterOut } from '../api'
 
 export default function ChaptersPage() {
   const { id } = useParams<{ id: string }>()
@@ -113,7 +105,7 @@ export default function ChaptersPage() {
             width: 110,
             render: (v, r) => (
               <Space direction="vertical" size={0}>
-                <Tag color={CH_STATE_META[v]?.color}>{CH_STATE_META[v]?.label ?? v}</Tag>
+                <Tag color={CHAPTER_STATE_META[v]?.color}>{CHAPTER_STATE_META[v]?.label ?? v}</Tag>
                 {v === 'draft_failed' && (
                   <Typography.Text type="danger" style={{ fontSize: 12 }} ellipsis={{ tooltip: r.draft_error }}>
                     {r.draft_error.slice(0, 40)}

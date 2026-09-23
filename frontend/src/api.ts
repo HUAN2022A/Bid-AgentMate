@@ -530,3 +530,12 @@ export const STATE_META: Record<string, { label: string; color: string }> = {
   checking: { label: '自查中', color: 'processing' },
   exported: { label: '已导出', color: 'success' },
 }
+
+/** 章节状态中文标签 + 颜色（章节页与驾驶舱共用一份映射） */
+export const CHAPTER_STATE_META: Record<string, { label: string; color: string }> = {
+  pending: { label: '待起草', color: 'default' },
+  drafting: { label: '起草中', color: 'processing' },
+  draft_done: { label: '起草完成', color: 'cyan' },
+  draft_failed: { label: '起草失败', color: 'error' },
+  edited: { label: '已编辑', color: 'success' },
+}
