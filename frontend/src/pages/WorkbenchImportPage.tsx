@@ -15,8 +15,8 @@ import {
 import { useNavigate, useParams } from 'react-router-dom'
 import type { DataNode } from 'antd/es/tree'
 import {
-  confirmBidOutline, getAnalysis, getBidOutline, getProject, listChapters, listTenderFiles,
-  saveBidOutline, triggerParse, uploadTender, type BidOutlineNode,
+  confirmBidOutline, downloadFile, exportWorkbench, getAnalysis, getBidOutline, getProject,
+  listChapters, listTenderFiles, saveBidOutline, triggerParse, uploadTender, type BidOutlineNode,
 } from '../api'
 import WorkbenchNav from '../components/workbench/WorkbenchNav'
 
@@ -403,6 +403,20 @@ export default function WorkbenchImportPage() {
               </Button>
               <Button icon={<FundProjectionScreenOutlined />} onClick={() => nav(`/projects/${pid}/wb-scoring`)}>
                 技术评分
+              </Button>
+              <Button
+                icon={<ArrowDownOutlined />}
+                onClick={async () => {
+                  try {
+                    const r = await exportWorkbench(pid)
+                    message.success(`docx 已生成（${r.chapters} 章 / ${r.total_words.toLocaleString()} 字），开始下载`)
+                    await downloadFile(pid, 'wb/export/docx', '投标文件-工作台版.docx')
+                  } catch (e) {
+                    message.error(e instanceof Error ? e.message : '导出失败')
+                  }
+                }}
+              >
+                导出投标文件
               </Button>
             </Space>
           </Space>

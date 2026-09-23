@@ -1,17 +1,22 @@
-"""标书工作台检查路由：触发检查（建 run 派发）/ run 进度 / findings 查询与人工确认。"""
+"""标书工作台路由：检查触发/进度/发现确认与一键修复 / 投标文件导出 / 检查报告。"""
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.core.storage import storage
 from app.models.project import Project
 from app.models.scoring_item import ScoringItemRow
 from app.models.user import User
 from app.models.workbench import CHECK_TYPES, FINDING_STATUSES, CheckRun, Finding, ScoreEstimate
-from app.services.workbench_check_service import dispatch_check
+from app.services.export_service import (
+    WORKBENCH_EXPORT_REL, build_workbench_check_report, run_workbench_export,
+)
+from app.services.workbench_check_service import dispatch_check, fix_all_typos, fix_finding
 
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["workbench"])
 
@@ -185,6 +190,78 @@ def patch_finding(
     db.commit()
     db.refresh(f)
     return _finding_out(f)
+
+
+@router.post("/findings/{finding_id}/fix", response_model=FindingOut)
+def fix_one_finding(
+    project_id: int, finding_id: int,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """错别字一键修复：定位替换落 fix 版本，finding 置已修复。正文已变则 409 提示重查。"""
+    _get_wb_project(db, project_id)
+    f = db.get(Finding, finding_id)
+    if f is None or f.project_id != project_id:
+        raise HTTPException(status_code=404, detail="检查发现不存在")
+    try:
+        fix_finding(db, f, user.id)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    db.refresh(f)
+    return _finding_out(f)
+
+
+@router.post("/findings/fix-all")
+def fix_all_findings(
+    project_id: int,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """批量修复最新错别字 run 的全部未处理发现（定位失效的跳过并回报）。"""
+    _get_wb_project(db, project_id)
+    return fix_all_typos(db, project_id, user.id)
+
+
+@router.post("/wb/export")
+def export_workbench(
+    project_id: int,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """导出润色/修复后的投标文件 docx（按投标目录树层级渲染，可反复导出）。"""
+    p = _get_wb_project(db, project_id)
+    result = run_workbench_export(project_id)
+    if "error" in result:
+        raise HTTPException(status_code=409, detail=result["error"])
+    return result
+
+
+@router.get("/wb/export/docx")
+def download_workbench_docx(
+    project_id: int,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """下载工作台导出的 docx（不存在则现场生成）。"""
+    _get_wb_project(db, project_id)
+    rel = WORKBENCH_EXPORT_REL.format(pid=project_id)
+    if not storage.exists(rel):
+        result = run_workbench_export(project_id)
+        if "error" in result:
+            raise HTTPException(status_code=409, detail=result["error"])
+    return FileResponse(
+        storage.abspath(rel),
+        filename="投标文件-工作台版.docx",
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )
+
+
+@router.get("/wb/check-report")
+def download_workbench_report(
+    project_id: int,
+    db: Session = Depends(get_db), user: User = Depends(get_current_user),
+):
+    """下载检查报告 markdown（现场生成，含四类检查最新结果与模拟评分）。"""
+    _get_wb_project(db, project_id)
+    rel, _ = build_workbench_check_report(project_id)
+    return FileResponse(storage.abspath(rel), filename="标书检查报告.md",
+                        media_type="text/markdown; charset=utf-8")
 
 
 @router.get("/score-estimates", response_model=list[ScoreEstimateOut])

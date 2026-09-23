@@ -15,8 +15,8 @@ from app.core.database import Base
 # workbench 模式：投标文件导入的章节起始为 imported，人工保存后同 edited
 CHAPTER_STATES = ["pending", "drafting", "draft_done", "draft_failed", "edited", "imported"]
 
-# 版本来源（Q24）；imported = 工作台投标文件导入
-VERSION_SOURCES = ["human", "ai_chapter", "ai_paragraph", "imported"]
+# 版本来源（Q24）；imported = 工作台投标文件导入；fix = 检查发现一键修复（错别字等程序化替换）
+VERSION_SOURCES = ["human", "ai_chapter", "ai_paragraph", "imported", "fix"]
 
 
 class Chapter(Base):

@@ -230,6 +230,7 @@ def run_typo_check(db: Session, run: CheckRun, chapters: list[tuple[Chapter, str
                 check_type="typo", severity="low",
                 bid_evidence=f"「{ctx}」", location=ch.chapter_key,
                 analysis=hit.reason, suggestion=f"{span} → {hit.corrected}",
+                fix={"span": span, "corrected": hit.corrected},  # 一键修复数据（回验过逐字命中）
             ))
         run.progress += 1
         db.commit()
@@ -332,6 +333,97 @@ def run_scoring_check(db: Session, run: CheckRun, chapters: list[tuple[Chapter, 
     stats["total_estimated"] = round(stats["total_estimated"], 1)
     run.stats = stats
     db.flush()
+
+
+# ---------------------------------------------------------------------------
+# 错别字一键修复（检查→修复闭环）
+# ---------------------------------------------------------------------------
+
+def _fix_payload(f: Finding) -> tuple[str, str] | None:
+    """取修复数据 (span, corrected)：优先结构化 fix 字段，旧数据回退解析 suggestion。"""
+    if f.fix and f.fix.get("span") and f.fix.get("corrected"):
+        return str(f.fix["span"]), str(f.fix["corrected"])
+    if " → " in f.suggestion:
+        left, _, right = f.suggestion.partition(" → ")
+        if left.strip() and right.strip():
+            return left.strip(), right.strip()
+    return None
+
+
+def _locate_span(content: str, span: str, evidence: str) -> int:
+    """span 定位：优先在证据上下文窗口内找（多处同错字时修对的那个），退化首次出现。"""
+    ctx = evidence.strip().strip("「」")
+    if ctx and span in ctx:
+        c_idx = content.find(ctx)
+        if c_idx >= 0:
+            s_idx = ctx.index(span)
+            return c_idx + s_idx
+    return content.find(span)
+
+
+def fix_finding(db: Session, finding: Finding, user_id: int | None) -> dict:
+    """修复一条错别字发现：定位替换 → 落 fix 版本 → finding 置 fixed。正文已变则抛 ValueError。"""
+    if finding.check_type != "typo":
+        raise ValueError("仅错别字发现支持一键修复")
+    payload = _fix_payload(finding)
+    if payload is None:
+        raise ValueError("该发现缺少修复数据（旧版本检查结果，请重新检查后再修复）")
+    span, corrected = payload
+    chapter = db.get(Chapter, finding.chapter_id) if finding.chapter_id else None
+    if chapter is None:
+        raise ValueError("发现未关联章节，无法修复")
+    v = (
+        db.query(ChapterVersion)
+        .filter(ChapterVersion.chapter_id == chapter.id)
+        .order_by(ChapterVersion.version_no.desc())
+        .first()
+    )
+    if v is None or not v.content_md.strip():
+        raise ValueError("章节无正文，无法修复")
+    idx = _locate_span(v.content_md, span, finding.bid_evidence)
+    if idx < 0:
+        raise ValueError("正文已变化，该发现定位失效（章节可能已被编辑/润色），请重新检查")
+
+    new_content = v.content_md[:idx] + corrected + v.content_md[idx + len(span):]
+    db.add(ChapterVersion(
+        chapter_id=chapter.id, version_no=v.version_no + 1,
+        content_md=new_content, word_count=len(new_content), source="fix",
+    ))
+    finding.confirm_status = "fixed"
+    finding.confirmed_by = user_id
+    finding.confirmed_at = datetime.now(timezone.utc)
+    db.commit()
+    return {"chapter_key": chapter.chapter_key, "version_no": v.version_no + 1,
+            "span": span, "corrected": corrected}
+
+
+def fix_all_typos(db: Session, project_id: int, user_id: int | None) -> dict:
+    """批量修复最新一次错别字 run 的全部未处理发现；定位失效的跳过并回报。"""
+    latest = (
+        db.query(CheckRun)
+        .filter(CheckRun.project_id == project_id, CheckRun.check_type == "typo")
+        .order_by(CheckRun.id.desc())
+        .first()
+    )
+    if latest is None:
+        return {"fixed": 0, "skipped": 0, "errors": ["尚未执行过错别字检查"]}
+    findings = (
+        db.query(Finding)
+        .filter(
+            Finding.run_id == latest.id, Finding.check_type == "typo",
+            Finding.confirm_status.in_(["pending", "confirmed"]),
+        )
+        .all()
+    )
+    fixed, errors = 0, []
+    # 同章多条逐条修复：每条都基于上一条修复后的最新版本定位
+    for f in findings:
+        try:
+            fix_finding(db, f, user_id)
+            fixed += 1
+        except ValueError as e:
+            errors.append(f"#{f.id} {f.chapter_key}: {e}")
+    return {"fixed": fixed, "skipped": len(findings) - fixed, "errors": errors[:20]}
 
 
 # ---------------------------------------------------------------------------

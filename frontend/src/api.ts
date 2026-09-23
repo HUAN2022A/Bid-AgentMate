@@ -277,6 +277,24 @@ export const patchScoreEstimate = (
     body: JSON.stringify(body),
   })
 
+// ---- 标书工作台：错别字一键修复 + 投标文件导出 ----
+
+export const fixFinding = (pid: number, findingId: number) =>
+  request<FindingOut>(`/api/projects/${pid}/findings/${findingId}/fix`, { method: 'POST' })
+export const fixAllTypos = (pid: number) =>
+  request<{ fixed: number; skipped: number; errors: string[] }>(
+    `/api/projects/${pid}/findings/fix-all`, { method: 'POST' })
+
+export interface WbExportOut {
+  export_path: string
+  chapters: number
+  total_words: number
+  pending_gaps: number
+  exported_at: string
+}
+export const exportWorkbench = (pid: number) =>
+  request<WbExportOut>(`/api/projects/${pid}/wb/export`, { method: 'POST' })
+
 export const getBidOutline = (id: number) =>
   request<BidOutlineDraftOut>(`/api/projects/${id}/outline?kind=bid`)
 export const saveBidOutline = (id: number, nodes: BidOutlineNode[]) =>
@@ -573,7 +591,7 @@ export interface CoverageOut {
 
 export const getCoverage = (id: number) => request<CoverageOut>(`/api/projects/${id}/coverage`)
 
-export async function downloadFile(id: number, kind: 'check/report' | 'export/docx', filename: string): Promise<void> {
+export async function downloadFile(id: number, kind: 'check/report' | 'export/docx' | 'wb/export/docx' | 'wb/check-report', filename: string): Promise<void> {
   const token = getToken()
   const resp = await fetch(`/api/projects/${id}/${kind}`, {
     headers: token ? { Authorization: `Bearer ${token}` } : {},

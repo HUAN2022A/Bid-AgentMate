@@ -9,11 +9,13 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   Alert, Button, Card, Empty, Popconfirm, Progress, Select, Space, Spin, Table, Tabs, Tag, Typography, message,
 } from 'antd'
-import { CheckCircleOutlined, CloseCircleOutlined, SafetyOutlined, ToolOutlined } from '@ant-design/icons'
+import {
+  CheckCircleOutlined, CloseCircleOutlined, DownloadOutlined, SafetyOutlined, ToolOutlined,
+} from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
-  CHECK_TYPE_META, FINDING_STATUS_META, listCheckRuns, listChapters, listFindings, patchFinding,
-  runWbCheck, SEVERITY_META, type FindingOut,
+  CHECK_TYPE_META, downloadFile, FINDING_STATUS_META, fixAllTypos, fixFinding, listCheckRuns,
+  listChapters, listFindings, patchFinding, runWbCheck, SEVERITY_META, type FindingOut,
 } from '../api'
 import WorkbenchNav from '../components/workbench/WorkbenchNav'
 
@@ -83,6 +85,37 @@ function CheckTab({ pid, checkType }: { pid: number; checkType: CheckType }) {
     }
   }
 
+  // 错别字一键修复：定位替换落 fix 版本，finding 自动置已修复
+  const [fixing, setFixing] = useState(false)
+  const fixOne = async (f: FindingOut) => {
+    setFixing(true)
+    try {
+      await fixFinding(pid, f.id)
+      message.success(`${f.chapter_key} 已修复并落新版本`)
+      qc.invalidateQueries({ queryKey: ['findings', pid, checkType] })
+      qc.invalidateQueries({ queryKey: ['chapters', pid] })
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '修复失败')
+    } finally {
+      setFixing(false)
+    }
+  }
+  const fixAll = async () => {
+    setFixing(true)
+    try {
+      const r = await fixAllTypos(pid)
+      if (r.fixed) message.success(`已修复 ${r.fixed} 条（跳过 ${r.skipped} 条）`)
+      else message.warning(r.errors?.[0] ?? '没有可修复的发现')
+      qc.invalidateQueries({ queryKey: ['findings', pid, checkType] })
+      qc.invalidateQueries({ queryKey: ['chapters', pid] })
+    } catch (e) {
+      message.error(e instanceof Error ? e.message : '批量修复失败')
+    } finally {
+      setFixing(false)
+    }
+  }
+  const fixable = findings.filter((f) => f.confirm_status === 'pending' || f.confirm_status === 'confirmed')
+
   const counts = useMemo(() => {
     const bySeverity: Record<string, number> = {}
     const byStatus: Record<string, number> = {}
@@ -135,6 +168,17 @@ function CheckTab({ pid, checkType }: { pid: number; checkType: CheckType }) {
             执行{CHECK_TYPE_META[checkType]}
           </Button>
         </Popconfirm>
+        {checkType === 'typo' && fixable.length > 0 && (
+          <Popconfirm
+            title={`一键修复 ${fixable.length} 条错别字`}
+            description={'逐条在正文中定位替换并落新版本（来源标记「错别字修复」）；正文已变化的条目自动跳过'}
+            onConfirm={fixAll}
+            okText="全部修复"
+            cancelText="取消"
+          >
+            <Button icon={<ToolOutlined />} loading={fixing} disabled={triggering}>全部修复（{fixable.length}）</Button>
+          </Popconfirm>
+        )}
         {latest && (
           <Typography.Text type="secondary">
             最近 run #{latest.id} · {latest.state === 'done' ? '完成' : latest.state === 'failed' ? '失败' : '进行中'}
@@ -221,9 +265,16 @@ function CheckTab({ pid, checkType }: { pid: number; checkType: CheckType }) {
                 title: '操作', key: 'ops', width: 170,
                 render: (_, r) => (
                   <Space size={4}>
+                    {checkType === 'typo' && r.confirm_status !== 'fixed' && (
+                      <Button size="small" type="primary" ghost icon={<ToolOutlined />} loading={fixing} onClick={() => fixOne(r)}>
+                        修复
+                      </Button>
+                    )}
                     <Button size="small" type="text" icon={<CheckCircleOutlined />} disabled={r.confirm_status === 'confirmed'} onClick={() => confirm(r, 'confirmed')} title={meta.confirmText} />
                     <Button size="small" type="text" icon={<CloseCircleOutlined />} disabled={r.confirm_status === 'dismissed'} onClick={() => confirm(r, 'dismissed')} title="误报，忽略" />
-                    <Button size="small" type="text" icon={<ToolOutlined />} disabled={r.confirm_status === 'fixed'} onClick={() => confirm(r, 'fixed')} title="已修复" />
+                    {checkType !== 'typo' && (
+                      <Button size="small" type="text" icon={<ToolOutlined />} disabled={r.confirm_status === 'fixed'} onClick={() => confirm(r, 'fixed')} title="已修复" />
+                    )}
                   </Space>
                 ),
               },
@@ -274,7 +325,17 @@ export default function WbCheckPage() {
   return (
     <Space direction="vertical" size={12} style={{ width: '100%' }}>
       <WorkbenchNav pid={pid} active="check" />
-      <Card title="标书检查（检查发现 ≠ 问题成立，需人工确认）">
+      <Card
+        title="标书检查（检查发现 ≠ 问题成立，需人工确认）"
+        extra={
+          <Button
+            size="small" icon={<DownloadOutlined />}
+            onClick={() => downloadFile(pid, 'wb/check-report', '标书检查报告.md')}
+          >
+            下载检查报告
+          </Button>
+        }
+      >
         <Tabs
           defaultActiveKey="disqualification"
           items={[

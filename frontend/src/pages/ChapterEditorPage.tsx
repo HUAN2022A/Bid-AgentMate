@@ -33,6 +33,8 @@ const SOURCE_LABEL: Record<string, { label: string; color: string }> = {
   ai_chapter: { label: 'AI 整章', color: 'blue' },
   ai_paragraph: { label: 'AI 段落', color: 'geekblue' },
   human: { label: '人工', color: 'green' },
+  imported: { label: '导入', color: 'purple' },
+  fix: { label: '错别字修复', color: 'gold' },
 }
 
 interface VersionGroup {

@@ -14,7 +14,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
 from app.models.outline import JSONBCompat
-
 CHECK_TYPES = ["disqualification", "typo", "logic", "scoring"]
 
 RUN_STATES = ["running", "done", "failed"]
@@ -61,6 +60,7 @@ class Finding(Base):
     location: Mapped[str] = mapped_column(String(512), default="")  # 原文位置说明
     analysis: Mapped[str] = mapped_column(Text, default="")  # 分析说明
     suggestion: Mapped[str] = mapped_column(Text, default="")  # 修改建议
+    fix: Mapped[dict] = mapped_column(JSONBCompat, default=dict)  # 错别字修复数据 {span, corrected}（一键修复用）
     confirm_status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
     confirmed_by: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=True)
     confirmed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=True)

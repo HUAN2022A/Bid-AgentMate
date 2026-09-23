@@ -35,6 +35,7 @@ COLUMNS = [
     ("projects", "bid_outline_version", "INTEGER DEFAULT 0 NOT NULL"),
     ("outline_drafts", "doc_kind", "VARCHAR(8) DEFAULT 'tender' NOT NULL"),
     ("outline_snapshots", "doc_kind", "VARCHAR(8) DEFAULT 'tender' NOT NULL"),
+    ("findings", "fix", "JSON"),
 ]
 
 
