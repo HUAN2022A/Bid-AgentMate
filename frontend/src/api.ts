@@ -170,6 +170,7 @@ export interface ChapterContentOut {
   chapter_key: string
   title: string
   state: string
+  scoring_keys: string
   content_md: string
   version_no: number
   word_count: number
@@ -183,19 +184,171 @@ export interface ChapterVersionOut {
   created_at: string
 }
 
+/** 保存时声明版本来源（Q24）：应用 Copilot 结果后未再手改 → ai_paragraph，否则 human */
+export type SaveSourceHint = 'human' | 'ai_paragraph'
+
 export const draftAllChapters = (id: number) =>
   request<{ dispatched: number }>(`/api/projects/${id}/chapters/draft-all`, { method: 'POST' })
 export const listChapters = (id: number) => request<ChapterOut[]>(`/api/projects/${id}/chapters`)
 export const getChapter = (id: number, chapterId: number) =>
   request<ChapterContentOut>(`/api/projects/${id}/chapters/${chapterId}`)
-export const saveChapter = (id: number, chapterId: number, contentMd: string) =>
+export const saveChapter = (id: number, chapterId: number, contentMd: string, sourceHint: SaveSourceHint = 'human') =>
   request<ChapterContentOut>(`/api/projects/${id}/chapters/${chapterId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content_md: contentMd }),
+    body: JSON.stringify({ content_md: contentMd, source_hint: sourceHint }),
   })
 export const listChapterVersions = (id: number, chapterId: number) =>
   request<ChapterVersionOut[]>(`/api/projects/${id}/chapters/${chapterId}/versions`)
+
+// ---- 章节内 Copilot（Q8 段落级动作）----
+
+export type CopilotActionName = 'rewrite' | 'expand' | 'compress' | 'align_scoring' | 'tabulate' | 'star_response'
+
+export const COPILOT_ACTION_LABEL: Record<CopilotActionName, string> = {
+  rewrite: '重写',
+  expand: '扩写',
+  compress: '压缩',
+  align_scoring: '对齐评分点',
+  tabulate: '表格化',
+  star_response: '★条款响应',
+}
+
+export interface CopilotRequest {
+  action: CopilotActionName
+  selection_md?: string
+  instruction?: string
+  scoring_key?: string
+  requirement_key?: string
+  prev_md?: string
+  next_md?: string
+}
+
+export interface CopilotResponse {
+  request_id: number
+  content_md: string
+  warnings: string[]
+  context_refs: { scoring_keys?: string[]; material_ids?: number[]; requirement_key?: string }
+  /** 流式 done 事件携带的诊断耗时（非流式端点无此字段） */
+  latency_ms?: number
+}
+
+/** 同步调用；signal 供取消（后端结果成为未应用的孤儿行 = 放弃信号） */
+export const runCopilot = (id: number, chapterId: number, body: CopilotRequest, signal?: AbortSignal) =>
+  request<CopilotResponse>(`/api/projects/${id}/chapters/${chapterId}/copilot`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  })
+
+/** SSE 单个事件块（一个空行分隔的若干行）的解析结果 */
+interface SseEvent {
+  event: string
+  data: string
+}
+
+/** 解析一个 SSE 事件块：event:/data: 前缀取值（多行 data 按 SSE 规范以 \n join），冒号开头为注释忽略 */
+function parseSseBlock(block: string): SseEvent | null {
+  let event = ''
+  const dataLines: string[] = []
+  for (const line of block.split('\n')) {
+    if (!line || line.startsWith(':')) continue
+    if (line.startsWith('event:')) event = line.slice(6).trim()
+    else if (line.startsWith('data:')) dataLines.push(line.slice(5).startsWith(' ') ? line.slice(6) : line.slice(5))
+  }
+  if (!event && dataLines.length === 0) return null
+  return { event, data: dataLines.join('\n') }
+}
+
+/** 流式 Copilot：fetch + ReadableStream 手解 SSE（EventSource 带不了 Authorization 头）。
+ *
+ * - 事件协议：delta{text} 可多次 → done{request_id,content_md,warnings,context_refs,latency_ms} | error{message} 互斥
+ * - done 的 content_md 是服务端权威全文，调用方应以此覆盖本地累积
+ * - 开流前的 404/422 是普通 JSON 错误体（走 ApiError，404 供调用方降级非流式）
+ * - 流读尽仍无 done → 连接中断；abort 时 reader 抛 AbortError 向上传播
+ */
+export async function streamCopilot(
+  id: number,
+  chapterId: number,
+  body: CopilotRequest,
+  handlers: { onDelta: (text: string) => void },
+  signal?: AbortSignal,
+): Promise<CopilotResponse> {
+  const headers = new Headers({ 'Content-Type': 'application/json' })
+  const token = getToken()
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  const resp = await fetch(`/api/projects/${id}/chapters/${chapterId}/copilot/stream`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify(body),
+    signal,
+  })
+  if (resp.status === 401) {
+    clearToken()
+    window.location.href = '/login'
+    throw new ApiError(401, '登录已失效')
+  }
+  if (!resp.ok) {
+    let detail = resp.statusText
+    try {
+      const err = await resp.json()
+      detail = err.detail || detail
+    } catch {
+      /* 非 JSON 错误体 */
+    }
+    throw new ApiError(resp.status, detail)
+  }
+  if (!resp.body) throw new ApiError(0, '当前浏览器不支持流式响应')
+  const reader = resp.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let donePayload: CopilotResponse | null = null
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    for (;;) {
+      const sep = buffer.indexOf('\n\n')
+      if (sep < 0) break
+      const ev = parseSseBlock(buffer.slice(0, sep))
+      buffer = buffer.slice(sep + 2)
+      if (!ev) continue
+      if (ev.event === 'delta') {
+        handlers.onDelta((JSON.parse(ev.data) as { text: string }).text)
+      } else if (ev.event === 'done') {
+        donePayload = JSON.parse(ev.data) as CopilotResponse
+      } else if (ev.event === 'error') {
+        throw new Error((JSON.parse(ev.data) as { message: string }).message)
+      }
+    }
+  }
+  if (!donePayload) throw new Error('连接中断，请重试')
+  return donePayload
+}
+export const markCopilotApplied = (id: number, actionId: number) =>
+  request<{ applied: boolean }>(`/api/projects/${id}/copilot-actions/${actionId}/applied`, { method: 'PATCH' })
+
+export interface CopilotStatRow {
+  key: string
+  total: number
+  applied: number
+  apply_rate: number
+  avg_latency_ms: number
+  avg_output_chars: number
+}
+
+export interface CopilotStatsOut {
+  total: number
+  applied: number
+  apply_rate: number
+  by_action: CopilotStatRow[]
+  by_model: CopilotStatRow[]
+  top_instructions: { instruction: string; count: number }[]
+}
+
+export const getCopilotStats = (projectId?: number) =>
+  request<CopilotStatsOut>(`/api/copilot-stats${projectId ? `?project_id=${projectId}` : ''}`)
 
 // ---- 交付：自查 + 导出 ----
 

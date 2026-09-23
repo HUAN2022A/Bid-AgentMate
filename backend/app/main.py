@@ -6,12 +6,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api import auth, chapters, delivery, materials, outline as outline_api, projects
+from app.api import (
+    auth,
+    chapters,
+    copilot as copilot_api,
+    delivery,
+    materials,
+    outline as outline_api,
+    projects,
+)
 from app.core.config import settings
 from app.core.database import Base, engine, SessionLocal
 from app.core.security import hash_password
 from app.models import (  # noqa: F401 注册表模型
     chapter,
+    copilot,
     file_object,
     material,
     outline,
@@ -40,6 +49,7 @@ app.include_router(outline_api.router)
 app.include_router(chapters.router)
 app.include_router(delivery.router)
 app.include_router(materials.router)
+app.include_router(copilot_api.router)
 
 
 @app.on_event("startup")

@@ -1,10 +1,21 @@
 """配置：.env + pydantic-settings 统一读取（Q29 定稿）。
 
-LLM 配置嵌套预留 llm.parse.*/llm.draft.* 拆分（当前共用一组）。
-环境变量优先覆盖 .env 文件。
+LLM 配置按环节拆分：全局 llm.* 兜底，llm.parse.* / llm.draft.* / llm.copilot.* 只填要覆盖的字段。
+环境变量优先覆盖 .env 文件，嵌套用双下划线，如 LLM__COPILOT__MODEL=qwen3-32b。
 """
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+class LLMLayerSettings(BaseModel):
+    """环节级覆盖：None 表示回退到全局 llm.*（解析/起草/段落 Copilot 负载画像不同，可各指一个端点）。"""
+
+    base_url: str | None = None
+    api_key: str | None = None
+    model: str | None = None
+    temperature: float | None = None
+    max_tokens: int | None = None
+    timeout_seconds: int | None = None
 
 
 class LLMSettings(BaseModel):
@@ -15,6 +26,10 @@ class LLMSettings(BaseModel):
     max_tokens: int = 8192
     timeout_seconds: int = 900  # 大文件解析单次 LLM 调用实测可超 5 分钟（90K 字符输入）
     max_retries: int = 2  # 结构化输出校验失败后的喂错重试上限（Q26）
+
+    parse: LLMLayerSettings = LLMLayerSettings()
+    draft: LLMLayerSettings = LLMLayerSettings()
+    copilot: LLMLayerSettings = LLMLayerSettings()
 
 
 class Settings(BaseSettings):

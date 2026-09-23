@@ -1,2 +1,8 @@
 * { box-sizing: border-box; }
 body { margin: 0; font-family: -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
+
+/* 章节编辑器内表格（参数表 / ★响应对照表） */
+.chapter-editor table { border-collapse: collapse; width: 100%; margin: 8px 0; table-layout: fixed; }
+.chapter-editor th, .chapter-editor td { border: 1px solid #d9d9d9; padding: 4px 8px; vertical-align: top; }
+.chapter-editor th { background: #fafafa; font-weight: 600; }
+.chapter-editor td > p, .chapter-editor th > p { margin: 0; }
