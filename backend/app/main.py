@@ -14,6 +14,7 @@ from app.api import (
     materials,
     outline as outline_api,
     projects,
+    screen,
 )
 from app.core.config import settings
 from app.core.database import Base, engine, SessionLocal
@@ -50,6 +51,7 @@ app.include_router(chapters.router)
 app.include_router(delivery.router)
 app.include_router(materials.router)
 app.include_router(copilot_api.router)
+app.include_router(screen.router)
 
 
 @app.on_event("startup")

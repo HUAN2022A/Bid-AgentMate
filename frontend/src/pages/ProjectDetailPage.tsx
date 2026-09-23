@@ -1,6 +1,6 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Alert, Button, Card, Descriptions, Popconfirm, Space, Table, Tag, Typography, Upload, message } from 'antd'
-import { DashboardOutlined, DownloadOutlined, InboxOutlined, PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons'
+import { DashboardOutlined, DownloadOutlined, FundProjectionScreenOutlined, InboxOutlined, PlayCircleOutlined, ReloadOutlined } from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   downloadExtracted,
@@ -94,6 +94,10 @@ export default function ProjectDetailPage() {
             {/* 驾驶舱入口：全状态可见（created 看流程引导、exported 看终态回顾） */}
             <Button icon={<DashboardOutlined />} onClick={() => nav(`/projects/${pid}/cockpit`)}>
               驾驶舱
+            </Button>
+            {/* 作战大屏：全屏新标签页打开（1920×1080 酷炫大屏） */}
+            <Button icon={<FundProjectionScreenOutlined />} onClick={() => window.open(`/screen/${pid}`, '_blank')}>
+              作战大屏
             </Button>
             {project.state === 'parsing' && <Button icon={<ReloadOutlined spin />} disabled>解析中…</Button>}
             {hasFiles && (

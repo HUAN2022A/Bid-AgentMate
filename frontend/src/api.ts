@@ -518,6 +518,98 @@ export async function downloadExtracted(id: number): Promise<void> {
   URL.revokeObjectURL(url)
 }
 
+// ---- 作战大屏：GET /api/projects/{id}/screen-data（字段与后端契约逐字对齐）----
+
+export interface ScreenProjectOut {
+  id: number
+  name: string
+  tender_no: string
+  state: string
+  updated_at: string
+}
+
+export interface ScreenSummaryOut {
+  total_words: number
+  target_words: number
+  done_chapters: number
+  total_chapters: number
+  pending_gaps: number
+  price_hits: number
+  star_reqs: number
+  star_hit: number
+}
+
+export interface ScreenScoreDistRow {
+  category: string
+  score: number
+  count: number
+}
+
+export interface ScreenCoverageChapter {
+  key: string
+  title: string
+}
+
+export interface ScreenCoverageItem {
+  key: string
+  item: string
+  score: number
+  /** 与 coverage.chapters 下标对齐，取值 covered | partial | none */
+  cells: string
+}
+
+export interface ScreenCoverageOut {
+  chapters: ScreenCoverageChapter[]
+  items: ScreenCoverageItem[]
+  summary: { covered: number; partial: number; none: number }
+}
+
+export interface ScreenChapterRow {
+  key: string
+  title: string
+  words: number
+  target: number
+  state: string
+}
+
+export interface ScreenCopilotRecent {
+  action: string
+  applied: boolean
+  at: string
+  model: string
+  instruction: string
+}
+
+export interface ScreenCopilotOut {
+  total: number
+  applied: number
+  apply_rate: number
+  recent: ScreenCopilotRecent[]
+}
+
+export interface ScreenMaterialsOut {
+  case: number
+  person: number
+  credential: number
+  ip: number
+  capability: number
+}
+
+export interface ScreenDataOut {
+  project: ScreenProjectOut
+  flow: string[]
+  current_step_index: number
+  summary: ScreenSummaryOut
+  score_dist: ScreenScoreDistRow[]
+  coverage: ScreenCoverageOut
+  chapters: ScreenChapterRow[]
+  copilot: ScreenCopilotOut
+  materials: ScreenMaterialsOut
+  risks: string[]
+}
+
+export const getScreenData = (id: number) => request<ScreenDataOut>(`/api/projects/${id}/screen-data`)
+
 /** 项目状态中文标签 + 颜色（AntD Tag/Badge 用） */
 export const STATE_META: Record<string, { label: string; color: string }> = {
   created: { label: '已创建', color: 'default' },

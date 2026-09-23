@@ -12,6 +12,7 @@ import ChapterEditorPage from './pages/ChapterEditorPage'
 import CockpitPage from './pages/CockpitPage'
 import DeliveryPage from './pages/DeliveryPage'
 import MaterialsPage from './pages/MaterialsPage'
+import ScreenPage from './pages/ScreenPage'
 
 function Shell() {
   const nav = useNavigate()
@@ -60,6 +61,12 @@ function RequireAuth() {
   return <Shell />
 }
 
+/** 全屏路由守卫：同样要求登录，但不套 Shell 布局（作战大屏是 1920×1080 独立画布，新标签页打开） */
+function RequireAuthFullscreen() {
+  if (!getToken()) return <Navigate to="/login" replace />
+  return <Outlet />
+}
+
 export default function App() {
   return (
     <Routes>
@@ -73,6 +80,9 @@ export default function App() {
         <Route path="/projects/:id/chapters/:chapterId" element={<ChapterEditorPage />} />
         <Route path="/projects/:id/delivery" element={<DeliveryPage />} />
         <Route path="/materials" element={<MaterialsPage />} />
+      </Route>
+      <Route element={<RequireAuthFullscreen />}>
+        <Route path="/screen/:id" element={<ScreenPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
