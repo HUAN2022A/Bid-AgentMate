@@ -20,8 +20,22 @@ from app.models.scoring_item import ScoringItemRow
 from app.models.tech_requirement import TechRequirementRow
 
 
-def _latest_contents(db: Session, project_id: int) -> dict[str, str]:
-    """{chapter_key: 最新版本正文}"""
+# 硬指标关键词：原文中的数字+单位片段（如 99.5%、400N、24个月）。run_check ★硬指标节与覆盖矩阵共用
+HARD_KW_RE = re.compile(r"\d+(?:\.\d+)?\s*(?:%|N|kN|kg|秒|天|个月|年|MPa|kV|mm|m\b)")
+
+
+def extract_hard_keywords(text: str) -> list[str]:
+    """原文 → 硬指标关键词（数字+单位片段）。无数字指标时返回空表（调用方决定退化策略）。"""
+    return HARD_KW_RE.findall(text)
+
+
+def find_keyword_hits(kws: list[str], content: str) -> list[str]:
+    """返回在正文中出现的关键词子集（strip 后匹配，语义同原 ★硬指标节）。"""
+    return [kw for kw in kws if kw.strip() in content]
+
+
+def latest_contents(db: Session, project_id: int) -> dict[str, str]:
+    """{chapter_key: 最新版本正文}（正文为空的章节不出现）。run_check 与覆盖矩阵共用。"""
     chapters = (
         db.query(Chapter)
         .filter(Chapter.project_id == project_id)
@@ -39,6 +53,50 @@ def _latest_contents(db: Session, project_id: int) -> dict[str, str]:
         if v and v.content_md.strip():
             out[ch.chapter_key] = v.content_md
     return out
+
+
+def scoring_chapter_map(db: Session, project_id: int) -> dict[str, list[str]]:
+    """{item_key: [chapter_key...]}（挂父章已展开到叶章）。
+
+    来源合并（run_check 覆盖矩阵与覆盖热力图共用，唯一一份挂接逻辑）：
+    - 先解析 chapters.scoring_keys（逗号分隔，同 copilot_service 的解析惯例）
+    - 再合并大纲快照 tree 的挂接：挂父章按 k == o or k.startswith(o + ".") 展开到叶章列
+      （修复演示库 outline_snapshots 为空时 run_check 误判「未挂章」的问题）
+    """
+    chapters = db.query(Chapter).filter(Chapter.project_id == project_id).all()
+    leaf_keys = [ch.chapter_key for ch in chapters]
+    mapping: dict[str, list[str]] = {}
+
+    def _add(s: str, k: str):
+        if k not in mapping.setdefault(s, []):
+            mapping[s].append(k)
+
+    for ch in chapters:  # 来源一：chapters.scoring_keys（确认大纲时固化）
+        for s in (k.strip() for k in ch.scoring_keys.split(",")):
+            if s:
+                _add(s, ch.chapter_key)
+
+    project = db.get(Project, project_id)  # 来源二：大纲快照 tree（版本取法同 run_check）
+    snap = None
+    if project is not None:
+        snap = (
+            db.query(OutlineSnapshot)
+            .filter(OutlineSnapshot.project_id == project_id, OutlineSnapshot.version == project.outline_version)
+            .first()
+        )
+
+    def _walk(ns):
+        for n in ns or []:
+            node_key = str(n.get("id"))
+            for s in n.get("scoring_keys") or []:
+                for k in leaf_keys:  # 挂父章 → 展开到叶章列
+                    if k == node_key or k.startswith(node_key + "."):
+                        _add(str(s), k)
+            _walk(n.get("children") or [])
+
+    if snap is not None:
+        _walk(snap.tree.get("nodes", []))
+    return mapping
 
 
 def _leaf_keys(nodes: list[dict]) -> list[str]:
@@ -84,7 +142,7 @@ def run_check(project_id: int) -> dict:
             .first()
         )
         outline_nodes = snap.tree.get("nodes", []) if snap else []
-        contents = _latest_contents(db, project_id)
+        contents = latest_contents(db, project_id)
 
         lines = [f"# 自查报告（{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M')} UTC）\n"]
 
@@ -92,20 +150,11 @@ def run_check(project_id: int) -> dict:
         lines.append("## 一、评分点覆盖率矩阵\n")
         lines.append("| 评分项 | 分值 | 大纲挂章 | 覆盖状态 |")
         lines.append("|---|---|---|---|")
-        score_to_chap: dict[str, list[str]] = {}
-        def _collect(ns):
-            for n in ns:
-                for s in n.get("scoring_keys") or []:
-                    score_to_chap.setdefault(str(s), []).append(str(n["id"]))
-                _collect(n.get("children") or [])
-        _collect(outline_nodes)
+        score_to_chap = scoring_chapter_map(db, project_id)
         covered = 0
         for it in tech_items:
             ochaps = score_to_chap.get(it.item_key, [])
-            hits = [k for k in ochaps if k in contents]
-            # 子章命中也算（评分点挂父章、正文在子章）
-            if not hits:
-                hits = [k for k in contents if any(k == o or k.startswith(o + ".") for o in ochaps)]
+            hits = [k for k in ochaps if k in contents]  # 挂父章已在公共函数内展开到叶章
             if hits:
                 status = "✅ 已响应"
                 covered += 1
@@ -124,11 +173,10 @@ def run_check(project_id: int) -> dict:
         star_hit = 0
         for r in star_reqs:
             orig = r.requirement_original.strip().replace("\n", " ")
-            # 关键词 = 原文中的数字+单位片段（如 99.5%、400N、24个月）
-            kws = re.findall(r"\d+(?:\.\d+)?\s*(?:%|N|kN|kg|秒|天|个月|年|MPa|kV|mm|m\b)", orig)
+            kws = extract_hard_keywords(orig)
             if not kws:
-                kws = [orig[:8]]
-            hits = [k for k, txt in contents.items() if any(kw.strip() in txt for kw in kws)]
+                kws = [orig[:8]]  # ★硬指标清单特有兜底：无数字指标时取原文前 8 字
+            hits = [k for k, txt in contents.items() if find_keyword_hits(kws, txt)]
             if hits:
                 star_hit += 1
             lines.append(f"| {r.req_key} | {orig[:30]}… | {'、'.join(hits[:3]) or '—'} | {'✅' if hits else '❌ 未命中'} |")
@@ -203,3 +251,106 @@ def run_check(project_id: int) -> dict:
         }
     finally:
         db.close()
+
+
+def _clip(text: str, limit: int = 60) -> str:
+    """单行化并封顶 limit 字（超出以 … 收尾）。"""
+    text = re.sub(r"\s+", " ", text).strip()
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
+def _kw_evidence(kw: str, content: str, span: int = 15) -> str:
+    """关键词 + 前后各 span 字上下文，整体封顶 60 字。"""
+    k = kw.strip()
+    i = content.find(k)
+    return k if i < 0 else _clip(f"…{content[max(0, i - span):i + len(k) + span]}…")
+
+
+def build_coverage(db: Session, project_id: int) -> dict:
+    """构建评分点×章节覆盖矩阵（只读实时计算，不落库、不设状态门）。
+
+    返回 {chapters, items, summary}：chapters 列（按 sort_order）、items 行（按 item_key），
+    每行 cells 与 chapters 等长同序；格级三态 covered/partial/none + 证据摘要，
+    判定语义见 docs/showcase/01-coverage-heatmap.md §2 决策表。
+    """
+    chapters = (
+        db.query(Chapter)
+        .filter(Chapter.project_id == project_id)
+        .order_by(Chapter.sort_order, Chapter.chapter_key)
+        .all()
+    )
+    contents = latest_contents(db, project_id)
+    score_map = scoring_chapter_map(db, project_id)
+    items = (
+        db.query(ScoringItemRow)
+        .filter(ScoringItemRow.project_id == project_id)
+        .order_by(ScoringItemRow.item_key)
+        .all()
+    )
+
+    chapters_out = []
+    for ch in chapters:
+        v = (  # 列头字数取最新版本行（无版本记 0）
+            db.query(ChapterVersion)
+            .filter(ChapterVersion.chapter_id == ch.id)
+            .order_by(ChapterVersion.version_no.desc())
+            .first()
+        )
+        chapters_out.append(
+            {
+                "chapter_key": ch.chapter_key,
+                "title": ch.title,
+                "has_content": ch.chapter_key in contents,
+                "word_count": v.word_count if v else 0,
+            }
+        )
+
+    rank = {"none": 0, "partial": 1, "covered": 2}
+    items_out = []
+    summary = {"total": 0, "covered": 0, "partial": 0, "none": 0}
+    for it in items:
+        kws = extract_hard_keywords(it.criteria_original)
+        linked = score_map.get(it.item_key, [])
+        linked_set = set(linked)
+        cells = []
+        for cell_ch in chapters_out:
+            key = cell_ch["chapter_key"]
+            content = contents.get(key, "")
+            hits = find_keyword_hits(kws, content) if kws and content else []
+            if kws:  # 有数字指标：按命中数定格
+                if not content:
+                    status, evidence = "none", ""
+                elif len(hits) == len(kws):
+                    status, evidence = "covered", _kw_evidence(hits[0], content)
+                elif hits:
+                    status = "partial"
+                    evidence = _clip(f"命中 {len(hits)}/{len(kws)}：{_kw_evidence(hits[0], content)}")
+                elif key in linked_set:
+                    status = "partial"
+                    evidence = _clip("挂接本章但未命中硬指标关键词：" + "、".join(k.strip() for k in kws))
+                else:
+                    status, evidence = "none", ""
+            else:  # 无数字指标：退化为挂接判定
+                if key in linked_set and content:
+                    status, evidence = "covered", "无硬指标关键词，按挂接+正文判定"
+                elif key in linked_set:
+                    status, evidence = "partial", "已挂接本章，正文未起草"
+                else:
+                    status, evidence = "none", ""
+            cells.append({"chapter_key": key, "status": status, "hit_keywords": hits, "evidence": evidence})
+        row_status = max((c["status"] for c in cells), key=lambda s: rank[s], default="none")
+        summary[row_status] += 1
+        summary["total"] += 1
+        items_out.append(
+            {
+                "item_key": it.item_key,
+                "item": it.item,
+                "category": it.category,
+                "score": it.score,
+                "criteria_brief": _clip(it.criteria_original, 80),
+                "linked_chapters": linked,
+                "row_status": row_status,
+                "cells": cells,
+            }
+        )
+    return {"chapters": chapters_out, "items": items_out, "summary": summary}

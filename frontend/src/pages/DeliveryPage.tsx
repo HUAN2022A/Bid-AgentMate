@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Card, Col, Modal, Row, Space, Statistic, Table, Tag, Typography, message } from 'antd'
 import { AuditOutlined, DownloadOutlined, EyeOutlined, FileWordOutlined } from '@ant-design/icons'
 import { useParams } from 'react-router-dom'
+import CoverageMatrix from '../components/coverage/CoverageMatrix'
 import {
   downloadFile, getExportPreview, getProject, runCheck, runExport, STATE_META,
   type CheckSummaryOut, type ExportPreviewOut, type ExportSummaryOut,
@@ -31,6 +32,7 @@ export default function DeliveryPage() {
       setCheckResult(r)
       message.success('自查完成')
       qc.invalidateQueries({ queryKey: ['project', pid] })
+      qc.invalidateQueries({ queryKey: ['coverage', pid] })
     } catch (e) {
       message.error(e instanceof Error ? e.message : '自查失败')
     } finally {
@@ -94,6 +96,8 @@ export default function DeliveryPage() {
           </Button>
         </Space>
       </Card>
+
+      <CoverageMatrix pid={pid} />
 
       <Modal
         title="导出预览"

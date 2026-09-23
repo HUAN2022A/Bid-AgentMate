@@ -387,6 +387,50 @@ export interface ExportPreviewOut {
 export const getExportPreview = (id: number) =>
   request<ExportPreviewOut>(`/api/projects/${id}/export/preview`)
 
+// ---- 覆盖热力图：评分点 × 章节覆盖矩阵（实时计算，只读） ----
+
+export type CoverageStatus = 'covered' | 'partial' | 'none'
+
+export interface CoverageChapterOut {
+  chapter_key: string
+  title: string
+  has_content: boolean
+  word_count: number
+}
+
+export interface CoverageCellOut {
+  chapter_key: string
+  status: CoverageStatus
+  hit_keywords: string[]
+  evidence: string
+}
+
+export interface CoverageItemOut {
+  item_key: string
+  item: string
+  category: string
+  score: number
+  criteria_brief: string
+  linked_chapters: string[]
+  row_status: CoverageStatus
+  cells: CoverageCellOut[]
+}
+
+export interface CoverageSummaryOut {
+  total: number
+  covered: number
+  partial: number
+  none: number
+}
+
+export interface CoverageOut {
+  chapters: CoverageChapterOut[]
+  items: CoverageItemOut[]
+  summary: CoverageSummaryOut
+}
+
+export const getCoverage = (id: number) => request<CoverageOut>(`/api/projects/${id}/coverage`)
+
 export async function downloadFile(id: number, kind: 'check/report' | 'export/docx', filename: string): Promise<void> {
   const token = getToken()
   const resp = await fetch(`/api/projects/${id}/${kind}`, {

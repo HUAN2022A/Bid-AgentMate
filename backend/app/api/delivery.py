@@ -1,4 +1,6 @@
 """交付路由：自查 + 导出（状态机 checking → exported）。"""
+from typing import Literal
+
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -9,7 +11,7 @@ from app.core.security import get_current_user
 from app.core.storage import storage
 from app.models.project import Project
 from app.models.user import User
-from app.services.check_service import run_check
+from app.services.check_service import build_coverage, run_check
 from app.services.export_service import run_export, run_export_preview
 
 router = APIRouter(prefix="/api/projects/{project_id}", tags=["delivery"])
@@ -47,6 +49,47 @@ class ExportPreviewOut(BaseModel):
     total_words: int
     pending_gaps: int
     style_notes: list[str]
+
+
+CoverageStatus = Literal["covered", "partial", "none"]
+
+
+class CoverageChapterOut(BaseModel):
+    chapter_key: str
+    title: str
+    has_content: bool
+    word_count: int
+
+
+class CoverageCellOut(BaseModel):
+    chapter_key: str
+    status: CoverageStatus
+    hit_keywords: list[str]
+    evidence: str
+
+
+class CoverageItemOut(BaseModel):
+    item_key: str
+    item: str
+    category: str
+    score: float
+    criteria_brief: str
+    linked_chapters: list[str]
+    row_status: CoverageStatus
+    cells: list[CoverageCellOut]
+
+
+class CoverageSummaryOut(BaseModel):
+    total: int
+    covered: int
+    partial: int
+    none: int
+
+
+class CoverageOut(BaseModel):
+    chapters: list[CoverageChapterOut]
+    items: list[CoverageItemOut]
+    summary: CoverageSummaryOut
 
 
 def _get_project(db: Session, project_id: int) -> Project:
@@ -95,6 +138,15 @@ def export_preview(
     if "error" in result:
         raise HTTPException(status_code=409, detail=result["error"])
     return ExportPreviewOut(**result)
+
+
+@router.get("/coverage", response_model=CoverageOut)
+def coverage(
+    project_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    """覆盖矩阵：行=评分点，列=章节，格=covered/partial/none + 证据摘要。实时计算，不落库。"""
+    _get_project(db, project_id)
+    return CoverageOut(**build_coverage(db, project_id))
 
 
 @router.get("/export/docx")
